@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智慧城市交通流量预测系统</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --bg-color: #05142b;
+            --panel-bg: rgba(16, 36, 68, 0.6);
+            --border-color: #0b3f6b;
+            --text-primary: #00f6ff;
+            --text-secondary: #ffffff;
+            --accent-color: #eac736;
+        }
+        
+        body {
+            font-family: 'Microsoft YaHei', 'PingFang SC', 'Helvetica Neue', Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            background-image: radial-gradient(circle at 50% 50%, #091f3d 0%, #05142b 100%);
+            color: var(--text-secondary);
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* 头部 */
+        header {
+            height: 80px;
+            background: linear-gradient(90deg, #05142b 0%, #0b3f6b 100%);
+            border-bottom: 2px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 40px;
+            box-shadow: 0 0 20px rgba(0, 246, 255, 0.1);
+        }
+
+        .header-title {
+            font-size: 32px;
+            font-weight: bold;
+            color: var(--text-primary);
+            text-shadow: 0 0 10px rgba(0, 246, 255, 0.5);
+            letter-spacing: 2px;
+        }
+
+        .header-time {
+            font-size: 18px;
+            color: var(--accent-color);
+            font-family: 'Courier New', monospace;
+        }
+
+        /* 主布局 */
+        main {
+            flex: 1;
+            display: grid;
+            grid-template-columns: 25% 50% 25%;
+            gap: 20px;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+
+        /* 面板 */
+        .panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            position: relative;
+            display: flex;
+            flex-direction: column;
+            padding: 15px;
+            box-shadow: inset 0 0 20px rgba(0, 100, 255, 0.1);
+        }
+
+        /* 科技感边角 */
+        .panel::before, .panel::after {
+            content: '';
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            border: 2px solid var(--text-primary);
+            transition: all 0.3s;
+        }
+        .panel::before { top: 0; left: 0; border-right: none; border-bottom: none; }
+        .panel::after { bottom: 0; right: 0; border-left: none; border-top: none; }
+
+        .panel-title {
+            font-size: 18px;
+            color: var(--text-secondary);
+            border-left: 4px solid var(--text-primary);
+            padding-left: 10px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            height: 24px;
+        }
+
+        /* 控制面板样式 */
+        .control-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: var(--text-primary);
+            font-size: 14px;
+        }
+
+        select {
+            width: 100%;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+            border-radius: 4px;
+            outline: none;
+            font-size: 14px;
+        }
+
+        select option {
+            background: #05142b;
+        }
+
+        button {
+            width: 100%;
+            padding: 12px;
+            background: linear-gradient(90deg, #0056b3 0%, #007bff 100%);
+            border: none;
+            color: white;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            transition: all 0.3s;
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.3);
+            font-size: 16px;
+        }
+
+        button:hover {
+            box-shadow: 0 0 20px rgba(0, 123, 255, 0.6);
+            transform: scale(1.02);
+        }
+
+        /* 图表容器 */
+        .chart-box {
+            flex: 1;
+            width: 100%;
+            min-height: 0;
+        }
+
+        /* 统计卡片 */
+        .stats-container {
+            display: flex;
+            justify-content: space-around;
+            margin-bottom: 20px;
+        }
+
+        .stat-card {
+            background: rgba(0, 246, 255, 0.05);
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+            border: 1px solid rgba(0, 246, 255, 0.2);
+            flex: 1;
+            margin: 0 10px;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            color: var(--accent-color);
+            font-family: 'Courier New', bold;
+            text-shadow: 0 0 5px rgba(234, 199, 54, 0.5);
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: #aaa;
+            margin-top: 5px;
+        }
+
+        /* 加载遮罩 */
+        #loading {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(5, 20, 43, 0.9);
+            z-index: 999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: var(--text-primary);
+            font-size: 24px;
+            flex-direction: column;
+        }
+        
+        /* 节点状态信息 */
+        .node-info {
+            color: #ccc; 
+            font-size: 14px; 
+            line-height: 1.8;
+        }
+        
+        .info-label {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+        
+        .info-value {
+            color: var(--accent-color);
+        }
+        
+        .trend-up {
+            color: #ff3333;
+        }
+        
+        .trend-down {
+            color: #00f6ff;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading">
+        <div>系统初始化中...</div>
+    </div>
+
+    <header>
+        <div class="header-title">城市交通大脑</div>
+        <div class="header-time" id="clock">00:00:00</div>
+    </header>
+
+    <main>
+        <!-- 左侧列 -->
+        <div style="display: flex; flex-direction: column; gap: 20px;">
+            <div class="panel" style="flex: 0 0 auto;">
+                <div class="panel-title">控制中心</div>
+                <div class="control-group">
+                    <label>选择路段节点</label>
+                    <select id="node-select">
+                        {% for i in "x"|rjust:"307" %}
+                        <option value="{{ forloop.counter0 }}">传感器节点 {{ forloop.counter0 }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <button onclick="runPrediction()">开始预测</button>
+            </div>
+            
+            <div class="panel" style="flex: 1;">
+                <div class="panel-title">拥堵路段 Top 10</div>
+                <div id="bar-chart" class="chart-box"></div>
+            </div>
+        </div>
+
+        <!-- 中间列 -->
+        <div class="panel" style="display: flex; flex-direction: column;">
+            <div class="stats-container">
+                <div class="stat-card">
+                    <div class="stat-value" id="total-nodes">307</div>
+                    <div class="stat-label">传感器总数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avg-flow">--</div>
+                    <div class="stat-label">平均车流量</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="model-status">STGCN</div>
+                    <div class="stat-label">当前模型</div>
+                </div>
+            </div>
+            
+            <div class="panel-title">实时交通热力图</div>
+            <div id="heatmap-chart" class="chart-box"></div>
+        </div>
+
+        <!-- 右侧列 -->
+        <div class="panel">
+            <div class="panel-title">预测分析</div>
+            <div id="line-chart" class="chart-box"></div>
+            <div style="height: 30%; border-top: 1px solid var(--border-color); padding-top: 10px; margin-top: 10px;">
+                 <div class="panel-title" style="font-size: 16px;">节点状态</div>
+                 <div class="node-info">
+                    <div>当前节点：<span id="current-node" style="color: var(--text-primary)">--</span></div>
+                    <div>预测峰值：<span id="pred-peak" style="color: var(--accent-color)">--</span></div>
+                    <div>趋势：<span id="trend-status" class="trend-down">等待预测...</span></div>
+                 </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // 实时时钟
+        function updateClock() {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString('zh-CN', {hour12: false});
+        }
+        setInterval(updateClock, 1000);
+        updateClock();
+
+        // 图表实例
+        let heatmapChart, lineChart, barChart;
+
+        // 初始化所有图表
+        function initCharts() {
+            heatmapChart = echarts.init(document.getElementById('heatmap-chart'));
+            lineChart = echarts.init(document.getElementById('line-chart'));
+            barChart = echarts.init(document.getElementById('bar-chart'));
+            
+            // 设置初始空选项
+            lineChart.setOption(getLineChartOption([], []));
+            
+            // 加载热力图数据
+            fetchHeatmapData();
+            
+            // 移除加载遮罩
+            setTimeout(() => {
+                document.getElementById('loading').style.display = 'none';
+            }, 1000);
+        }
+
+        // --- 图表配置（深色主题）---
+        
+        function getCommonOption() {
+            return {
+                backgroundColor: 'transparent',
+                textStyle: { fontFamily: 'Microsoft YaHei' },
+                grid: { top: 40, bottom: 30, left: 50, right: 20 }
+            };
+        }
+
+        function getLineChartOption(groundTruth, prediction) {
+            return {
+                ...getCommonOption(),
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(5, 20, 43, 0.9)',
+                    borderColor: '#00f6ff',
+                    textStyle: { color: '#fff' },
+                    formatter: function(params) {
+                        let res = params[0].name + '<br/>';
+                        params.forEach(p => {
+                            res += p.marker + ' ' + p.seriesName + ': ' + p.value.toFixed(2) + '<br/>';
+                        });
+                        return res;
+                    }
+                },
+                legend: {
+                    data: ['真实值', '预测值'],
+                    textStyle: { color: '#fff' },
+                    top: 0
+                },
+                xAxis: {
+                    type: 'category',
+                    data: Array.from({length: 12}, (_, i) => `T+${i+1}`),
+                    axisLine: { lineStyle: { color: '#0b3f6b' } },
+                    axisLabel: { color: '#00f6ff' }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '车流量',
+                    nameTextStyle: { color: '#fff' },
+                    splitLine: { lineStyle: { color: '#0b3f6b', type: 'dashed' } },
+                    axisLabel: { color: '#00f6ff' }
+                },
+                series: [
+                    {
+                        name: '真实值',
+                        type: 'line',
+                        data: groundTruth,
+                        smooth: true,
+                        symbol: 'none',
+                        itemStyle: { color: '#00f6ff' },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{offset: 0, color: 'rgba(0, 246, 255, 0.3)'}, {offset: 1, color: 'rgba(0, 246, 255, 0)'}])
+                        }
+                    },
+                    {
+                        name: '预测值',
+                        type: 'line',
+                        data: prediction,
+                        smooth: true,
+                        symbol: 'none',
+                        itemStyle: { color: '#eac736' },
+                        lineStyle: { type: 'dashed' }
+                    }
+                ]
+            };
+        }
+
+        function getHeatmapOption(data, min, max) {
+            return {
+                ...getCommonOption(),
+                tooltip: {
+                    position: 'top',
+                    backgroundColor: 'rgba(5, 20, 43, 0.9)',
+                    borderColor: '#00f6ff',
+                    textStyle: { color: '#fff' },
+                    formatter: (p) => `节点 ${p.value[1]*18 + p.value[0]}<br/>车流量: ${p.value[2].toFixed(0)}`
+                },
+                visualMap: {
+                    min: min,
+                    max: max,
+                    calculable: true,
+                    orient: 'horizontal',
+                    left: 'center',
+                    bottom: 0,
+                    textStyle: { color: '#fff' },
+                    inRange: { color: ['#00f6ff', '#0056b3', '#eac736', '#ff3333'] }
+                },
+                xAxis: { show: false, type: 'category' },
+                yAxis: { show: false, type: 'category' },
+                series: [{
+                    type: 'heatmap',
+                    data: data,
+                    itemStyle: {
+                        borderColor: '#05142b',
+                        borderWidth: 1
+                    },
+                    label: {
+                        show: false
+                    }
+                }]
+            };
+        }
+
+        function getBarChartOption(data) {
+            return {
+                ...getCommonOption(),
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    backgroundColor: 'rgba(5, 20, 43, 0.9)',
+                    borderColor: '#00f6ff',
+                    textStyle: { color: '#fff' },
+                    formatter: (params) => {
+                        return params[0].name + '<br/>车流量: ' + params[0].value;
+                    }
+                },
+                grid: { left: 40, right: 20, top: 10, bottom: 20 },
+                xAxis: { 
+                    type: 'value', 
+                    splitLine: { show: false },
+                    axisLabel: { show: false }
+                },
+                yAxis: { 
+                    type: 'category', 
+                    data: data.map(d => `节点${d.id}`),
+                    axisLabel: { color: '#fff', fontSize: 10 },
+                    axisLine: { show: false },
+                    axisTick: { show: false }
+                },
+                series: [{
+                    type: 'bar',
+                    data: data.map(d => d.value),
+                    itemStyle: {
+                        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+                            {offset: 0, color: '#eac736'}, 
+                            {offset: 1, color: '#ff3333'}
+                        ])
+                    },
+                    label: { 
+                        show: true, 
+                        position: 'right', 
+                        color: '#fff',
+                        formatter: (p) => p.value.toFixed(0)
+                    }
+                }]
+            };
+        }
+
+        // --- 业务逻辑 ---
+
+        async function fetchHeatmapData() {
+            try {
+                heatmapChart.showLoading({ color: '#00f6ff', maskColor: 'rgba(5, 20, 43, 0.5)' });
+                const res = await fetch('/api/heatmap/');
+                const json = await res.json();
+                
+                if (json.status === 'success') {
+                    // 1. 更新热力图
+                    heatmapChart.setOption(getHeatmapOption(json.data, json.min_val, json.max_val));
+                    
+                    // 2. 更新统计信息
+                    const allValues = json.data.map(d => d[2]);
+                    const avg = allValues.reduce((a,b) => a+b, 0) / allValues.length;
+                    document.getElementById('avg-flow').innerText = avg.toFixed(0);
+
+                    // 3. 更新Top 10柱状图
+                    const nodes = json.data.map((d, i) => ({ id: i, value: d[2] }));
+                    const top10 = nodes.sort((a, b) => b.value - a.value).slice(0, 10).reverse();
+                    
+                    barChart.setOption(getBarChartOption(top10));
+                }
+            } catch (e) {
+                console.error('热力图数据加载失败:', e);
+            } finally {
+                heatmapChart.hideLoading();
+            }
+        }
+
+        async function runPrediction() {
+            const nodeId = document.getElementById('node-select').value;
+            document.getElementById('current-node').innerText = `节点 ${nodeId}`;
+            
+            lineChart.showLoading({ color: '#00f6ff', maskColor: 'rgba(5, 20, 43, 0.5)' });
+            
+            try {
+                const res = await fetch('/api/predict/', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ model: 'stgcn', node_id: nodeId })
+                });
+                const json = await res.json();
+                
+                if (json.status === 'success') {
+                    lineChart.setOption(getLineChartOption(json.ground_truth, json.prediction));
+                    
+                    // 更新右侧面板信息
+                    const peak = Math.max(...json.prediction);
+                    document.getElementById('pred-peak').innerText = peak.toFixed(0);
+                    
+                    const first = json.prediction[0];
+                    const last = json.prediction[json.prediction.length - 1];
+                    const trend = last > first ? '上升 ↗' : '下降 ↘';
+                    const trendEl = document.getElementById('trend-status');
+                    trendEl.innerText = trend;
+                    trendEl.className = last > first ? 'trend-up' : 'trend-down';
+                } else {
+                    alert('预测失败：' + json.message);
+                }
+            } catch (e) {
+                alert('预测请求失败，请检查网络连接');
+                console.error(e);
+            } finally {
+                lineChart.hideLoading();
+            }
+        }
+
+        // 窗口大小变化时调整图表
+        window.addEventListener('resize', () => {
+            heatmapChart && heatmapChart.resize();
+            lineChart && lineChart.resize();
+            barChart && barChart.resize();
+        });
+
+        // 初始化
+        window.addEventListener('load', initCharts);
+
+    </script>
+</body>
+</html>

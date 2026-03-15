@@ -29,7 +29,15 @@ def _get_adj_and_scaler():
     if data is None:
         return None, None, None
     adj = data['adj_matrix']
-    scaler = (float(data['mean'].item()), float(data['std'].item()))
+    # 支持节点级和全局标准化
+    mean_data = data['mean']
+    std_data = data['std']
+    if mean_data.ndim == 0:
+        # 全局标准化（标量）
+        scaler = (float(mean_data.item()), float(std_data.item()))
+    else:
+        # 节点级标准化（数组）
+        scaler = (mean_data, std_data)
     return data, adj, scaler
 
 
@@ -70,7 +78,13 @@ def api_explore_stats(request):
     if data is not None and scaler is not None:
         mean, std = scaler
         X_test = data['X_test']
-        avg_flow = round(float(np.mean(X_test * std + mean)), 1)
+        # 支持节点级标准化
+        if isinstance(mean, np.ndarray) and mean.ndim == 1:
+            std_expanded = std.reshape(1, 1, -1)
+            mean_expanded = mean.reshape(1, 1, -1)
+            avg_flow = round(float(np.mean(X_test * std_expanded + mean_expanded)), 1)
+        else:
+            avg_flow = round(float(np.mean(X_test * std + mean)), 1)
     return JsonResponse({'num_cameras': num_cameras, 'avg_flow': avg_flow})
 
 
@@ -81,10 +95,15 @@ def api_congestion_top10(request):
         return JsonResponse({'error': '数据未加载'}, status=404)
     mean, std = scaler
     y_test = data['y_test']
-    # 每个节点在所有样本、所有预测步上的平均流量（反标准化）
-    flow = (y_test * std + mean).reshape(-1, y_test.shape[1] * y_test.shape[2])
-    # 按节点：取该节点在所有样本上的平均
-    node_avg = np.mean(y_test * std + mean, axis=(0, 1))
+    # 支持节点级标准化
+    if isinstance(mean, np.ndarray) and mean.ndim == 1:
+        std_expanded = std.reshape(1, 1, -1)
+        mean_expanded = mean.reshape(1, 1, -1)
+        y_real = y_test * std_expanded + mean_expanded
+    else:
+        y_real = y_test * std + mean
+    # 每个节点在所有样本、所有预测步上的平均流量
+    node_avg = np.mean(y_real, axis=(0, 1))
     top10_idx = np.argsort(node_avg)[::-1][:10]
     top10 = [{'rank': i + 1, 'node_id': int(idx), 'avg_flow': float(node_avg[idx])} for i, idx in enumerate(top10_idx)]
     return JsonResponse({'top10': top10})
@@ -109,7 +128,13 @@ def api_topology_3d(request):
         mean, std = scaler
         X_test = data['X_test']
         n_samples = min(3000, X_test.shape[0])
-        node_avg = np.mean(X_test[:n_samples] * std + mean, axis=(0, 1))
+        # 支持节点级标准化
+        if isinstance(mean, np.ndarray) and mean.ndim == 1:
+            std_expanded = std.reshape(1, 1, -1)
+            mean_expanded = mean.reshape(1, 1, -1)
+            node_avg = np.mean(X_test[:n_samples] * std_expanded + mean_expanded, axis=(0, 1))
+        else:
+            node_avg = np.mean(X_test[:n_samples] * std + mean, axis=(0, 1))
 
     # 使用 networkx spring layout 生成 2D 坐标
     G = nx.Graph()
@@ -183,8 +208,13 @@ def api_polar_period(request):
     mean, std = scaler
     X_test = data['X_test']
     n_samples = min(3000, X_test.shape[0])
+    # 获取该节点的标准化参数
+    if isinstance(mean, np.ndarray) and mean.ndim == 1:
+        node_mean, node_std = mean[node], std[node]
+    else:
+        node_mean, node_std = mean, std
     # 12 个时段（对应 12 步）的平均流量
-    day_agg = np.mean(X_test[:n_samples, :, node] * std + mean, axis=0)
+    day_agg = np.mean(X_test[:n_samples, :, node] * node_std + node_mean, axis=0)
     # 极坐标：每段 2*pi/12 弧度
     n_steps = 12
     thetas = (np.arange(n_steps) * 2 * np.pi / n_steps).tolist()
@@ -281,11 +311,16 @@ def api_timeseries(request):
     X_test = data['X_test']
     y_test = data['y_test']
     mean, std = scaler
+    # 获取该节点的标准化参数
+    if isinstance(mean, np.ndarray) and mean.ndim == 1:
+        node_mean, node_std = mean[node], std[node]
+    else:
+        node_mean, node_std = mean, std
     # 取该节点在测试集上的最后一维（时间步）的序列：多个样本拼成长序列
     seq_len = X_test.shape[1]
     steps = min(500, X_test.shape[0])
-    hist = (X_test[:steps, :, node] * std + mean).reshape(-1)
-    true_next = (y_test[:steps, 0, node] * std + mean).tolist()
+    hist = (X_test[:steps, :, node] * node_std + node_mean).reshape(-1)
+    true_next = (y_test[:steps, 0, node] * node_std + node_mean).tolist()
     x_axis = list(range(len(hist)))
     return JsonResponse({
         'x': x_axis,
@@ -304,22 +339,27 @@ def api_patterns(request):
     mean, std = scaler
     X_test = data['X_test']
     y_test = data['y_test']
+    # 获取该节点的标准化参数
+    if isinstance(mean, np.ndarray) and mean.ndim == 1:
+        node_mean, node_std = mean[node], std[node]
+    else:
+        node_mean, node_std = mean, std
     # 日模式：12 个时间步上的平均流量
     steps_12 = 12
     day_agg = np.zeros(steps_12)
     count = np.zeros(steps_12)
     n_samples = min(2000, X_test.shape[0])
     for t in range(steps_12):
-        day_agg[t] = np.mean((X_test[:n_samples, t, node] * std + mean))
+        day_agg[t] = np.mean((X_test[:n_samples, t, node] * node_std + node_mean))
         count[t] = n_samples
     day_agg = (day_agg / (count + 1e-8)).tolist()
-    # 周模式：用样本索引模 7 当作“星期几”，每个“日”取平均
+    # 周模式：用样本索引模 7 当作"星期几"，每个"日"取平均
     week_agg = []
     for d in range(7):
         mask = (np.arange(X_test.shape[0]) % 7) == d
         subset = X_test[mask][:500]
         if len(subset) > 0:
-            week_agg.append(float(np.mean(subset[:, :, node]) * std + mean))
+            week_agg.append(float(np.mean(subset[:, :, node]) * node_std + node_mean))
         else:
             week_agg.append(0.0)
     return JsonResponse({
@@ -374,14 +414,20 @@ def api_predict(request):
         pred = model(x, adj_t)
     pred = pred.cpu().numpy()[0]
     true = y_test[sample_idx]
-    pred_real = pred * std + mean
-    true_real = true * std + mean
-    input_seq = (X_test[sample_idx, :, node_id] * std + mean).tolist()
+    # 支持节点级标准化
+    if isinstance(mean, np.ndarray) and mean.ndim == 1:
+        pred_real = pred * std[node_id] + mean[node_id]
+        true_real = true * std[node_id] + mean[node_id]
+        input_seq = (X_test[sample_idx, :, node_id] * std[node_id] + mean[node_id]).tolist()
+    else:
+        pred_real = pred * std + mean
+        true_real = true * std + mean
+        input_seq = (X_test[sample_idx, :, node_id] * std + mean).tolist()
     return JsonResponse({
         'input_seq': input_seq,
         'pred_steps': list(range(1, 13)),
-        'pred': pred_real[:, node_id].tolist(),
-        'true': true_real[:, node_id].tolist(),
+        'pred': pred_real[:, node_id].tolist() if pred_real.ndim > 1 else pred_real.tolist(),
+        'true': true_real[:, node_id].tolist() if true_real.ndim > 1 else true_real.tolist(),
         'node_id': node_id,
         'sample_idx': sample_idx,
     })
@@ -394,9 +440,14 @@ def api_flow_distribution(request):
         return JsonResponse({'error': '数据未加载'}, status=404)
     mean, std = scaler
     X_test = data['X_test']
-    # 反标准化后取所有节点所有时间步的流量
     n_samples = min(3000, X_test.shape[0])
-    all_flow = (X_test[:n_samples] * std + mean).flatten()
+    # 支持节点级标准化
+    if isinstance(mean, np.ndarray) and mean.ndim == 1:
+        std_expanded = std.reshape(1, 1, -1)
+        mean_expanded = mean.reshape(1, 1, -1)
+        all_flow = (X_test[:n_samples] * std_expanded + mean_expanded).flatten()
+    else:
+        all_flow = (X_test[:n_samples] * std + mean).flatten()
     # 计算直方图的 bin 和 count
     counts, bin_edges = np.histogram(all_flow, bins=50)
     bin_centers = ((bin_edges[:-1] + bin_edges[1:]) / 2).tolist()

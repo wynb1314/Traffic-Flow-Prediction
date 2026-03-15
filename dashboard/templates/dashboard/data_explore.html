@@ -1,0 +1,289 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}数据探索 - PEMS04{% endblock %}
+{% block extra_css %}
+<style>
+    /* 左下到右上的渐变背景 */
+    body {
+        background: linear-gradient(135deg, #171b2d 0%, #2a3760 100%);
+        min-height: 100vh;
+    }
+    /* 数据探索页面 */
+    .explore-page { max-width: 1600px; margin: 0 auto; }
+    .explore-page h1 { margin: 0 0 0.25rem 0; font-size: 1.75rem; font-weight: 600; color: var(--nav-text); }
+    .explore-page .subtitle { color: #7a7f8c; margin-bottom: 1.5rem; font-size: 0.95rem; }
+
+    /* 统计卡片 + 拥堵 Top10 直方图 */
+    .stats-row { display: grid; grid-template-columns: auto 1fr; gap: 1.5rem; align-items: start; margin-bottom: 1.5rem; }
+    .stats-cards { display: flex; flex-direction: column; gap: 1rem; }
+    .stat-card {
+        background: linear-gradient(145deg, #1e2130 0%, #161922 100%);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.25rem 1.5rem;
+        min-width: 160px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+    }
+    .stat-card .stat-value { font-size: 2rem; font-weight: 700; color: var(--accent); letter-spacing: -0.02em; }
+    .stat-card .stat-label { font-size: 0.85rem; color: #7a7f8c; margin-top: 0.25rem; }
+
+    /* 拥堵路段 Top 10 直方图 */
+    .top10-card {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1rem 1.25rem;
+        flex: 1;
+        min-width: 280px;
+    }
+    .top10-card h3 { margin: 0 0 0.75rem 0; font-size: 1rem; color: var(--nav-text); font-weight: 600; }
+    .top10-chart-wrap { width: 100%; min-height: 280px; }
+
+    .section-title { font-size: 1.1rem; color: var(--nav-text); margin: 0 0 0.75rem 0; font-weight: 600; }
+    .section-desc { color: #7a7f8c; font-size: 0.9rem; margin-bottom: 1rem; }
+    .card-explore {
+        background: var(--card-bg);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 1.25rem;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+    .card-explore .chart-wrap { width: 100%; min-height: 400px; border-radius: 8px; overflow: hidden; }
+
+    /* 时间序列 + 极坐标周期图 */
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+    @media (max-width: 900px) { .two-col { grid-template-columns: 1fr; } .stats-row { grid-template-columns: 1fr; } }
+
+    .ctrl-row { display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.75rem; flex-wrap: wrap; }
+    .ctrl-row label { display: flex; align-items: center; gap: 0.5rem; color: #9ca3af; font-size: 0.9rem; }
+    .ctrl-row input[type="number"] { width: 72px; padding: 0.35rem 0.5rem; border-radius: 6px; border: 1px solid var(--border); background: var(--nav-bg); color: var(--text); }
+    .ctrl-row .slider-wrap { display: flex; align-items: center; gap: 0.5rem; }
+    .ctrl-row input[type="range"] { width: 120px; accent-color: var(--accent); }
+    .btn-sm { padding: 0.4rem 0.75rem; border-radius: 6px; font-size: 0.85rem; border: 1px solid var(--border); background: var(--nav-bg); color: var(--text); cursor: pointer; }
+    .btn-sm:hover { background: rgba(78,205,196,0.15); color: var(--accent); }
+
+    .polar-section .chart-wrap { min-height: 360px; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="explore-page main">
+    <h1>数据探索</h1>
+    <p class="subtitle">PEMS04 路网拓扑、时间序列与周期模式分析</p>
+
+    <!-- 统计卡片（上下布局） + 拥堵 Top10 直方图 -->
+    <div class="stats-row">
+        <div class="stats-cards">
+            <div class="stat-card">
+                <div class="stat-value" id="stat-cameras">--</div>
+                <div class="stat-label">摄像头数量</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="stat-flow">--</div>
+                <div class="stat-label">平均流量</div>
+            </div>
+        </div>
+        <div class="top10-card">
+            <h3>拥堵路段 Top 10</h3>
+            <div id="top10-chart" class="top10-chart-wrap"></div>
+        </div>
+    </div>
+
+    <!-- 2D 拓扑 -->
+    <div class="card-explore">
+        <h2 class="section-title">路网拓扑</h2>
+        <p class="section-desc">307 个节点，颜色表示拥堵程度（红=高流量/拥堵，绿=低流量/畅通）</p>
+        <div class="ctrl-row">
+            <div class="slider-wrap">
+                <label>边阈值</label>
+                <input type="range" id="topology-threshold" min="0.03" max="0.25" step="0.01" value="0.08">
+                <span id="topology-threshold-val">0.08</span>
+            </div>
+        </div>
+        <div id="topology-chart" class="chart-wrap"></div>
+    </div>
+
+    <!-- 时间序列 + 极坐标周期图 -->
+    <div class="two-col">
+        <div class="card-explore">
+            <h2 class="section-title">时间序列</h2>
+            <p class="section-desc">选定节点的历史流量序列（测试集）</p>
+            <div class="ctrl-row">
+                <label>节点 <input type="number" id="ts-node" min="0" value="0"></label>
+                <button class="btn-sm" id="ts-refresh">刷新</button>
+            </div>
+            <div id="timeseries-chart" class="chart-wrap"></div>
+        </div>
+        <div class="card-explore polar-section">
+            <h2 class="section-title">极坐标周期图</h2>
+            <p class="section-desc">日周期 12 时段平均流量（极坐标）</p>
+            <div class="ctrl-row">
+                <label>节点 <input type="number" id="polar-node" min="0" value="0"></label>
+                <button class="btn-sm" id="polar-refresh">刷新</button>
+            </div>
+            <div id="polar-chart" class="chart-wrap"></div>
+        </div>
+    </div>
+
+    <!-- 数据统计分析 - 流量分布直方图 -->
+    <div class="card-explore">
+        <h2 class="section-title">数据统计分析</h2>
+        <p class="section-desc">所有节点所有时间的流量分布直方图</p>
+        <div id="flow-dist-chart" class="chart-wrap" style="min-height: 350px;"></div>
+    </div>
+</div>
+
+<script>
+(function() {
+    var base = '';
+
+    function loadStats() {
+        fetch(base + '/api/explore/stats/')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                document.getElementById('stat-cameras').textContent = d.num_cameras != null ? d.num_cameras : '--';
+                document.getElementById('stat-flow').textContent = d.avg_flow != null ? d.avg_flow : '--';
+            })
+            .catch(function() {});
+    }
+
+    function loadTop10Histogram() {
+        fetch(base + '/api/explore/congestion-top10/')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('top10-chart');
+                if (d.error) { el.innerHTML = '<p style="color:#e74c3c; padding:1rem;">' + d.error + '</p>'; return; }
+                var nodeIds = d.top10.map(function(o) { return '节点 ' + o.node_id; }).reverse();
+                var flows = d.top10.map(function(o) { return o.avg_flow; }).reverse();
+                Plotly.newPlot('top10-chart', [{
+                    y: nodeIds,
+                    x: flows,
+                    type: 'bar',
+                    orientation: 'h',
+                    marker: {
+                        color: flows,
+                        colorscale: 'RdYlGn_r',
+                        line: { color: 'rgba(255,255,255,0.3)', width: 1 }
+                    },
+                    text: flows.map(function(v) { return v.toFixed(1); }),
+                    textposition: 'outside',
+                    textfont: { color: '#9ca3af', size: 10 }
+                }], {
+                    title: { text: '', font: { size: 14 } },
+                    xaxis: { title: '平均流量', gridcolor: 'rgba(60,60,80,0.3)', tickfont: { color: '#9ca3af' } },
+                    yaxis: { gridcolor: 'rgba(60,60,80,0.3)', tickfont: { color: '#9ca3af' } },
+                    template: 'plotly_dark',
+                    paper_bgcolor: 'rgba(28,31,42,1)',
+                    plot_bgcolor: 'rgba(15,17,23,1)',
+                    margin: { t: 20, r: 60, b: 40, l: 80 },
+                    height: 280,
+                    showlegend: false
+                }, { responsive: true });
+            })
+            .catch(function() { document.getElementById('top10-chart').innerHTML = '<p style="color:#e74c3c;">加载失败</p>'; });
+    }
+
+    loadStats();
+    loadTop10Histogram();
+
+    function plotTopology(threshold) {
+        fetch(base + '/api/explore/topology3d/?threshold=' + threshold)
+            .then(function(r) { return r.json(); })
+            .then(function(fig) {
+                var el = document.getElementById('topology-chart');
+                if (fig.error) { el.innerHTML = '<p style="color:#e74c3c; padding:1rem;">' + fig.error + '</p>'; return; }
+                Plotly.newPlot('topology-chart', fig.data, fig.layout, { responsive: true });
+            })
+            .catch(function(e) { document.getElementById('topology-chart').innerHTML = '<p style="color:#e74c3c;">加载失败</p>'; });
+    }
+
+    document.getElementById('topology-threshold').oninput = function() {
+        var v = this.value;
+        document.getElementById('topology-threshold-val').textContent = v;
+        plotTopology(v);
+    };
+    plotTopology('0.08');
+
+    function plotTimeseries(node) {
+        fetch(base + '/api/explore/timeseries/?node=' + node)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('timeseries-chart');
+                if (d.error) { el.innerHTML = '<p style="color:#e74c3c;">' + d.error + '</p>'; return; }
+                var trace1 = { x: d.x, y: d.history, type: 'scatter', mode: 'lines', name: '历史序列', line: { color: '#4ecdc4', width: 1.5 } };
+                var x2 = Array.from({ length: d.true_first_step.length }, function(_, i) { return i * 12; });
+                var trace2 = { x: x2, y: d.true_first_step, type: 'scatter', mode: 'lines', name: '真实下一步', line: { color: '#ff7f0e', dash: 'dash', width: 1.2 } };
+                Plotly.newPlot('timeseries-chart', [trace1, trace2], {
+                    title: '节点 ' + d.node + ' 时间序列',
+                    xaxis: { title: '时间步', gridcolor: 'rgba(60,60,80,0.3)' },
+                    yaxis: { title: '流量', gridcolor: 'rgba(60,60,80,0.3)' },
+                    template: 'plotly_dark', paper_bgcolor: 'rgba(28,31,42,1)', plot_bgcolor: 'rgba(15,17,23,1)',
+                    margin: { t: 36 }, height: 380, showlegend: true, legend: { x: 1, y: 1, xanchor: 'right' }
+                }, { responsive: true });
+            })
+            .catch(function(e) { document.getElementById('timeseries-chart').innerHTML = '<p style="color:#e74c3c;">加载失败</p>'; });
+    }
+
+    document.getElementById('ts-refresh').onclick = function() { plotTimeseries(document.getElementById('ts-node').value); };
+    plotTimeseries(0);
+
+    function plotPolar(node) {
+        fetch(base + '/api/explore/polar-period/?node=' + node)
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('polar-chart');
+                if (d.error) { el.innerHTML = '<p style="color:#e74c3c;">' + d.error + '</p>'; return; }
+                var thetas = d.theta.map(function(t) { return (t * 180 / Math.PI); });
+                var r = d.r.slice();
+                r.push(r[0]);
+                thetas.push(thetas[0]);
+                var trace = { type: 'scatterpolar', r: r, theta: thetas, fill: 'toself', line: { color: '#4ecdc4', width: 2 }, fillcolor: 'rgba(78,205,196,0.15)', name: '流量' };
+                var tickvals = [0, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330];
+                var ticktext = ['步1', '步2', '步3', '步4', '步5', '步6', '步7', '步8', '步9', '步10', '步11', '步12'];
+                Plotly.newPlot('polar-chart', [trace], {
+                    polar: {
+                        radialaxis: { gridcolor: 'rgba(60,60,80,0.4)', tickfont: { color: '#9ca3af' }, title: { text: '流量' } },
+                        angularaxis: { gridcolor: 'rgba(60,60,80,0.4)', tickfont: { color: '#9ca3af' }, tickvals: tickvals, ticktext: ticktext }
+                    },
+                    paper_bgcolor: 'rgba(28,31,42,1)', margin: { t: 36 }, height: 360, showlegend: false
+                }, { responsive: true });
+            });
+    }
+
+    document.getElementById('polar-refresh').onclick = function() { plotPolar(document.getElementById('polar-node').value); };
+    plotPolar(0);
+
+    function plotFlowDistribution() {
+        fetch(base + '/api/explore/flow-distribution/')
+            .then(function(r) { return r.json(); })
+            .then(function(d) {
+                var el = document.getElementById('flow-dist-chart');
+                if (d.error) { el.innerHTML = '<p style="color:#e74c3c;">' + d.error + '</p>'; return; }
+                Plotly.newPlot('flow-dist-chart', [{
+                    x: d.bin_centers,
+                    y: d.counts,
+                    type: 'bar',
+                    marker: {
+                        color: d.counts,
+                        colorscale: 'Viridis',
+                        line: { color: 'rgba(78,205,196,0.5)', width: 1 }
+                    }
+                }], {
+                    title: '流量分布直方图',
+                    xaxis: { title: '流量', gridcolor: 'rgba(60,60,80,0.3)', tickfont: { color: '#9ca3af' } },
+                    yaxis: { title: '频次', gridcolor: 'rgba(60,60,80,0.3)', tickfont: { color: '#9ca3af' } },
+                    template: 'plotly_dark',
+                    paper_bgcolor: 'rgba(28,31,42,1)',
+                    plot_bgcolor: 'rgba(15,17,23,1)',
+                    margin: { t: 50, r: 20, b: 50, l: 60 },
+                    height: 350,
+                    bargap: 0.02
+                }, { responsive: true });
+            })
+            .catch(function() { document.getElementById('flow-dist-chart').innerHTML = '<p style="color:#e74c3c;">加载失败</p>'; });
+    }
+
+    plotFlowDistribution();
+})();
+</script>
+{% endblock %}

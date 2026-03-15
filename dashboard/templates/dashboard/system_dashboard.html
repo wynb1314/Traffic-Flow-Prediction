@@ -1,0 +1,44 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}系统仪表盘 - PEMS04{% endblock %}
+{% block content %}
+<h1 style="margin-top:0; margin-bottom:1rem;">系统仪表盘</h1>
+
+<div class="card">
+    <h2>项目介绍</h2>
+    <p>本系统基于 <strong>PEMS04</strong> 数据集，使用 <strong>STGCN</strong>（时空图卷积网络）与 <strong>LSTM</strong> 进行交通流量预测。PEMS04 为加州交通传感器数据，包含 307 个节点，本系统支持 12 步（约 1 小时）多步预测。</p>
+    <ul style="color:#aaa;">
+        <li><strong>数据探索</strong>：路网拓扑、时间序列、周/日模式分析</li>
+        <li><strong>智能预测</strong>：选择节点与样本，调用 STGCN 模型得到预测曲线</li>
+        <li><strong>系统仪表盘</strong>：项目说明与模型评估指标</li>
+    </ul>
+</div>
+
+<div class="card">
+    <h2>模型指标</h2>
+    <p style="margin-bottom:1rem; color:#888;">在测试集上的 MAE、RMSE、MAPE、R²（若已生成 lstm_results.npz / stgcn_results.npz）</p>
+
+    {% if metrics.stgcn %}
+    <h3 style="font-size:1rem; color:#4ecdc4;">STGCN</h3>
+    <div class="metrics-row">
+        <div class="metric-box"><span class="label">MAE</span><div class="value">{{ metrics.stgcn.mae|floatformat:4 }}</div></div>
+        <div class="metric-box"><span class="label">RMSE</span><div class="value">{{ metrics.stgcn.rmse|floatformat:4 }}</div></div>
+        <div class="metric-box"><span class="label">MAPE (%)</span><div class="value">{{ metrics.stgcn.mape|floatformat:2 }}</div></div>
+        <div class="metric-box"><span class="label">R²</span><div class="value">{{ metrics.stgcn.r2|floatformat:4 }}</div></div>
+    </div>
+    {% else %}
+    <p style="color:#888;">STGCN：暂无结果（请先运行 STGCN 训练并生成 stgcn_results.npz）</p>
+    {% endif %}
+
+    {% if metrics.lstm %}
+    <h3 style="font-size:1rem; color:#45B7D1; margin-top:1rem;">LSTM</h3>
+    <div class="metrics-row">
+        <div class="metric-box"><span class="label">MAE</span><div class="value">{{ metrics.lstm.mae|floatformat:4 }}</div></div>
+        <div class="metric-box"><span class="label">RMSE</span><div class="value">{{ metrics.lstm.rmse|floatformat:4 }}</div></div>
+        <div class="metric-box"><span class="label">MAPE (%)</span><div class="value">{{ metrics.lstm.mape|floatformat:2 }}</div></div>
+        <div class="metric-box"><span class="label">R²</span><div class="value">{{ metrics.lstm.r2|floatformat:4 }}</div></div>
+    </div>
+    {% else %}
+    <p style="color:#888;">LSTM：暂无结果（请先运行 LSTM 训练并生成 lstm_results.npz）</p>
+    {% endif %}
+</div>
+{% endblock %}

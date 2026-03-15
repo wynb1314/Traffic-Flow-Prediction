@@ -1,0 +1,56 @@
+{% extends 'dashboard/base.html' %}
+{% block title %}智能预测 - PEMS04{% endblock %}
+{% block content %}
+<h1 style="margin-top:0; margin-bottom:1rem;">智能预测</h1>
+<p style="color:#888; margin-bottom:1.5rem;">选择节点与样本，使用 STGCN 模型进行预测并查看曲线</p>
+
+<div class="card">
+    <h2>预测配置</h2>
+    <div class="metrics-row">
+        <label>节点 ID <select id="predict-node">{% for i in node_list %}<option value="{{ i }}">{{ i }}{% endfor %}</select></label>
+        <label style="margin-left:1rem;">样本索引 <input type="number" id="predict-sample" min="0" value="0" style="width:100px;"></label>
+        <button id="predict-btn" style="margin-left:1rem; padding:0.5rem 1rem; background:var(--accent); color:var(--nav-bg); border:none; border-radius:6px; cursor:pointer;">运行预测</button>
+    </div>
+    <p id="predict-msg" style="min-height:1.5rem; color:#888;"></p>
+</div>
+
+<div class="card">
+    <h2>输入序列（过去 12 步）</h2>
+    <div id="input-seq-chart" class="chart-container"></div>
+</div>
+
+<div class="card">
+    <h2>预测曲线（未来 12 步）</h2>
+    <div id="pred-curve-chart" class="chart-container"></div>
+</div>
+
+<script>
+(function() {
+    var nodeSelect = document.getElementById('predict-node');
+
+    document.getElementById('predict-btn').onclick = function() {
+        var nodeId = parseInt(nodeSelect.value, 10);
+        var sampleIdx = parseInt(document.getElementById('predict-sample').value, 10);
+        var msg = document.getElementById('predict-msg');
+        msg.textContent = '正在预测...';
+        fetch('/api/predict/run/', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]') && document.querySelector('[name=csrfmiddlewaretoken]').value },
+            body: JSON.stringify({ node_id: nodeId, sample_idx: sampleIdx })
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) { msg.textContent = d.error; return; }
+            msg.textContent = '节点 ' + d.node_id + '，样本 ' + d.sample_idx;
+            Plotly.newPlot('input-seq-chart', [{ x: Array.from({ length: 12 }, function(_, i) { return i + 1; }), y: d.input_seq, type: 'scatter', mode: 'lines+markers', name: '输入', line: { color: '#2ca02c' } }], { title: '输入序列', xaxis: { title: '步' }, yaxis: { title: '流量' }, template: 'plotly_dark', margin: { t: 40 }, height: 320 }, { responsive: true });
+            Plotly.newPlot('pred-curve-chart', [
+                { x: d.pred_steps, y: d.true, type: 'scatter', mode: 'lines+markers', name: '真实值', line: { color: '#1f77b4' } },
+                { x: d.pred_steps, y: d.pred, type: 'scatter', mode: 'lines+markers', name: 'STGCN 预测', line: { color: '#ff7f0e', dash: 'dash' } }
+            ], { title: '预测 vs 真实', xaxis: { title: '预测步' }, yaxis: { title: '流量' }, template: 'plotly_dark', margin: { t: 40 }, height: 380 }, { responsive: true });
+        })
+        .catch(function(e) { msg.textContent = '请求失败: ' + e.message; });
+    };
+})();
+</script>
+<form style="display:none;">{% csrf_token %}</form>
+{% endblock %}
