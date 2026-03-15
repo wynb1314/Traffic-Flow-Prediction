@@ -13,5 +13,6 @@ urlpatterns = [
     path('api/explore/timeseries/', views.api_timeseries),
     path('api/explore/patterns/', views.api_patterns),
     path('api/explore/polar-period/', views.api_polar_period),
+    path('api/explore/flow-distribution/', views.api_flow_distribution),
     path('api/predict/run/', views.api_predict),
 ]

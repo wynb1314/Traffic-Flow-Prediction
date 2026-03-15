@@ -29,7 +29,7 @@ warnings.filterwarnings('ignore')
 plt.rcParams["font.family"] = ["SimHei", "DejaVu Sans"]
 plt.rcParams["axes.unicode_minus"] = False
 
-# 3. STGCN模型定义（从你的代码复制）
+# 3. STGCN模型定义
 class TemporalConvLayer(nn.Module):
     def __init__(self, in_channels, out_channels, kernel_size=3):
         super(TemporalConvLayer, self).__init__()

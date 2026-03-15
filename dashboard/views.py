@@ -60,13 +60,18 @@ def _get_num_cameras():
 
 
 def api_explore_stats(request):
-    """摄像头数、节点数（供数据探索页统计卡片）"""
-    data, adj, _ = _get_adj_and_scaler()
+    """摄像头数、平均流量（供数据探索页统计卡片）"""
+    data, adj, scaler = _get_adj_and_scaler()
     num_nodes = int(adj.shape[0]) if adj is not None else 307
     num_cameras = _get_num_cameras()
     if num_cameras is None:
         num_cameras = num_nodes
-    return JsonResponse({'num_nodes': num_nodes, 'num_cameras': num_cameras})
+    avg_flow = None
+    if data is not None and scaler is not None:
+        mean, std = scaler
+        X_test = data['X_test']
+        avg_flow = round(float(np.mean(X_test * std + mean)), 1)
+    return JsonResponse({'num_cameras': num_cameras, 'avg_flow': avg_flow})
 
 
 def api_congestion_top10(request):
@@ -86,68 +91,84 @@ def api_congestion_top10(request):
 
 
 def api_topology_3d(request):
-    """3D 拓扑：307 个节点悬浮在三维空间，节点间发光连线"""
-    data, adj, _ = _get_adj_and_scaler()
+    """2D 拓扑：307 个节点用颜色表示拥堵程度，节点间连线"""
+    data, adj, scaler = _get_adj_and_scaler()
     if adj is None:
         return JsonResponse({'error': '数据未加载'}, status=404)
     try:
         import plotly.graph_objects as go
+        import networkx as nx
     except ImportError:
-        return JsonResponse({'error': '缺少 plotly'}, status=500)
+        return JsonResponse({'error': '缺少 plotly 或 networkx'}, status=500)
     threshold = float(request.GET.get('threshold', 0.08))
     num_nodes = adj.shape[0]
-    # 稳定 3D 布局：在单位球面附近随机分布
-    np.random.seed(42)
-    pos = np.random.standard_normal((num_nodes, 3))
-    pos = pos / (np.linalg.norm(pos, axis=1, keepdims=True) + 1e-8) * 1.2
-    # 边：邻接矩阵大于阈值的连线（单条 trace 多段线，用 None 断开）
-    ex, ey, ez = [], [], []
+
+    # 计算每个节点的平均流量作为拥堵指标
+    node_avg = np.zeros(num_nodes)
+    if data is not None and scaler is not None:
+        mean, std = scaler
+        X_test = data['X_test']
+        n_samples = min(3000, X_test.shape[0])
+        node_avg = np.mean(X_test[:n_samples] * std + mean, axis=(0, 1))
+
+    # 使用 networkx spring layout 生成 2D 坐标
+    G = nx.Graph()
+    for i in range(num_nodes):
+        G.add_node(i)
     for i in range(num_nodes):
         for j in range(i + 1, num_nodes):
             if adj[i, j] > threshold:
-                ex.extend([pos[i, 0], pos[j, 0], None])
-                ey.extend([pos[i, 1], pos[j, 1], None])
-                ez.extend([pos[i, 2], pos[j, 2], None])
-    edge_trace = go.Scatter3d(
+                G.add_edge(i, j)
+    pos = nx.spring_layout(G, k=0.8, iterations=50, seed=42)
+
+    # 边
+    ex, ey = [], []
+    for i in range(num_nodes):
+        for j in range(i + 1, num_nodes):
+            if adj[i, j] > threshold:
+                ex.extend([pos[i][0], pos[j][0], None])
+                ey.extend([pos[i][1], pos[j][1], None])
+    edge_trace = go.Scatter(
         x=ex if ex else [0],
         y=ey if ey else [0],
-        z=ez if ez else [0],
         mode='lines',
-        line=dict(color='rgba(78, 205, 196, 0.9)', width=2.5),
+        line=dict(color='rgba(78, 205, 196, 0.3)', width=0.8),
         hoverinfo='none',
         showlegend=False,
     )
-    node_trace = go.Scatter3d(
-        x=pos[:, 0].tolist(),
-        y=pos[:, 1].tolist(),
-        z=pos[:, 2].tolist(),
-        mode='markers+text',
-        text=[str(i) for i in range(num_nodes)],
-        textposition='top center',
-        textfont=dict(size=8),
+    # 节点：颜色根据平均流量（拥堵程度）
+    node_x = [pos[i][0] for i in range(num_nodes)]
+    node_y = [pos[i][1] for i in range(num_nodes)]
+    node_trace = go.Scatter(
+        x=node_x,
+        y=node_y,
+        mode='markers',
         marker=dict(
-            size=4,
-            color=np.arange(num_nodes),
-            colorscale='Viridis',
-            line=dict(width=0.5, color='rgba(255,255,255,0.5)'),
+            size=7,
+            color=node_avg.tolist(),
+            colorscale='RdYlGn_r',
+            showscale=True,
+            colorbar=dict(
+                title=dict(text='平均流量', font=dict(color='#9ca3af')),
+                tickfont=dict(color='#9ca3af'),
+                bgcolor='rgba(28,31,42,0.8)',
+            ),
+            line=dict(width=0.5, color='rgba(255,255,255,0.3)'),
         ),
-        hovertext=[f'节点 {i}' for i in range(num_nodes)],
+        hovertext=[f'节点 {i}<br>平均流量: {node_avg[i]:.1f}' for i in range(num_nodes)],
         hoverinfo='text',
         showlegend=False,
     )
     fig = go.Figure(data=[edge_trace, node_trace])
     fig.update_layout(
-        title=dict(text='3D 路网拓扑（307 节点）', font=dict(size=16)),
-        scene=dict(
-            xaxis=dict(showticklabels=False, title='', backgroundcolor='rgba(17,17,23,1)', gridcolor='rgba(60,60,80,0.3)'),
-            yaxis=dict(showticklabels=False, title='', backgroundcolor='rgba(17,17,23,1)', gridcolor='rgba(60,60,80,0.3)'),
-            zaxis=dict(showticklabels=False, title='', backgroundcolor='rgba(17,17,23,1)', gridcolor='rgba(60,60,80,0.3)'),
-            bgcolor='rgba(15,17,23,1)',
-        ),
+        title=dict(text='2D 路网拓扑（307 节点 · 颜色=拥堵程度）', font=dict(size=16, color='#e0e0e0')),
+        xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+        yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
         paper_bgcolor='rgba(28,31,42,1)',
         plot_bgcolor='rgba(15,17,23,1)',
         margin=dict(l=0, r=0, t=40, b=0),
         height=520,
+        hovermode='closest',
     )
     return JsonResponse(json.loads(fig.to_json()))
 
@@ -363,4 +384,24 @@ def api_predict(request):
         'true': true_real[:, node_id].tolist(),
         'node_id': node_id,
         'sample_idx': sample_idx,
+    })
+
+
+def api_flow_distribution(request):
+    """流量分布直方图：所有节点所有时间的流量分布"""
+    data, adj, scaler = _get_adj_and_scaler()
+    if data is None or scaler is None:
+        return JsonResponse({'error': '数据未加载'}, status=404)
+    mean, std = scaler
+    X_test = data['X_test']
+    # 反标准化后取所有节点所有时间步的流量
+    n_samples = min(3000, X_test.shape[0])
+    all_flow = (X_test[:n_samples] * std + mean).flatten()
+    # 计算直方图的 bin 和 count
+    counts, bin_edges = np.histogram(all_flow, bins=50)
+    bin_centers = ((bin_edges[:-1] + bin_edges[1:]) / 2).tolist()
+    return JsonResponse({
+        'bin_centers': bin_centers,
+        'counts': counts.tolist(),
+        'bin_edges': bin_edges.tolist(),
     })

@@ -1,378 +1,249 @@
-import torch
-import torch.nn as nn
 import numpy as np
-from torch.utils.data import DataLoader
-import matplotlib.pyplot as plt
-import time
+import torch
+from torch.utils.data import Dataset
+import scipy.sparse as sp
 
 
-class SimpleLSTM(nn.Module):
+def build_correlation_adj(flow_data, top_k=3, threshold=0.5):
     """
-    简单的LSTM交通流量预测模型
+    基于流量相关性构建邻接矩阵
+    flow_data: (T, N) 时间序列流量数据
+    top_k: 每个节点保留相关性最高的k个邻居
+    threshold: 相关性阈值（0-1之间）
     """
-    def __init__(self, num_nodes, hidden_dim=64, num_layers=2, dropout=0.1):
-        """
-        参数:
-            num_nodes: 节点数量 (307)
-            hidden_dim: LSTM隐藏层维度
-            num_layers: LSTM层数
-            dropout: Dropout比例
-        """
-        super(SimpleLSTM, self).__init__()
-        
-        self.num_nodes = num_nodes
-        self.hidden_dim = hidden_dim
-        self.num_layers = num_layers
-        
-        # LSTM层
-        self.lstm = nn.LSTM(
-            input_size=num_nodes,
-            hidden_size=hidden_dim,
-            num_layers=num_layers,
-            batch_first=True,
-            dropout=dropout if num_layers > 1 else 0
-        )
-        
-        # 全连接层
-        self.fc = nn.Linear(hidden_dim, num_nodes)
-        
-        # Dropout
-        self.dropout = nn.Dropout(dropout)
+    N = flow_data.shape[1]
+    print(f"正在计算 {N} 个节点的相关性矩阵...")
     
-    def forward(self, x):
-        """
-        前向传播
-        x: [batch_size, seq_len, num_nodes]
-        return: [batch_size, pred_len, num_nodes]
-        """
-        batch_size, seq_len, num_nodes = x.shape
+    # 计算皮尔逊相关系数矩阵
+    corr_matrix = np.corrcoef(flow_data.T)  # (N, N)
+    
+    # 处理NaN值（如果存在）
+    corr_matrix = np.nan_to_num(corr_matrix, nan=0.0)
+    
+    # 将相关系数转为0-1之间（取绝对值）
+    corr_matrix = np.abs(corr_matrix)
+    
+    # 构建邻接矩阵：Top-K策略
+    adj_matrix = np.zeros((N, N))
+    for i in range(N):
+        # 找到相关性最高的top_k个节点（排除自己）
+        corr_i = corr_matrix[i].copy()
+        corr_i[i] = 0  # 排除自己
         
-        # LSTM: [batch_size, seq_len, num_nodes] -> [batch_size, seq_len, hidden_dim]
-        lstm_out, (h_n, c_n) = self.lstm(x)
+        # 选择相关性大于阈值的
+        valid_indices = np.where(corr_i >= threshold)[0]
         
-        # 使用所有时间步的输出进行预测（取最后pred_len步）
-        # 这里简化为使用最后的hidden state来预测所有未来步
-        outputs = []
-        hidden = (h_n, c_n)
-        
-        # 使用最后一个时间步作为初始输入
-        decoder_input = x[:, -1:, :]  # [batch_size, 1, num_nodes]
-        
-        # 预测12步
-        for t in range(12):
-            lstm_out, hidden = self.lstm(decoder_input, hidden)
-            lstm_out = self.dropout(lstm_out)
-            pred = self.fc(lstm_out)  # [batch_size, 1, num_nodes]
-            outputs.append(pred)
-            decoder_input = pred  # 使用预测值作为下一步输入
-        
-        # 拼接所有预测
-        output = torch.cat(outputs, dim=1)  # [batch_size, 12, num_nodes]
-        
-        return output
+        if len(valid_indices) > 0:
+            # 如果超过top_k个，只取前top_k个
+            if len(valid_indices) > top_k:
+                top_indices = valid_indices[np.argsort(corr_i[valid_indices])[-top_k:]]
+            else:
+                top_indices = valid_indices
+            
+            adj_matrix[i, top_indices] = 1
+        else:
+            # 如果没有满足阈值的，就取相关性最高的top_k个
+            top_indices = np.argsort(corr_i)[-top_k:]
+            adj_matrix[i, top_indices] = 1
+    
+    # 对称化（无向图）
+    adj_matrix = (adj_matrix + adj_matrix.T > 0).astype(float)
+    
+    return adj_matrix
 
 
-def calculate_metrics(pred, true, scaler):
+def load_pems_data(data_path):
     """
-    计算评估指标（在原始尺度上）
-    pred, true: [num_samples, pred_len, num_nodes] 标准化后的数据
-    scaler: (mean, std)
-    """
-    mean, std = scaler
-    
-    # 反标准化
-    pred_real = pred * std + mean
-    true_real = true * std + mean
-    
-    # 展平为一维
-    pred_flat = pred_real.flatten()
-    true_flat = true_real.flatten()
-    
-    # MAE
-    mae = np.mean(np.abs(pred_flat - true_flat))
-    
-    # RMSE
-    rmse = np.sqrt(np.mean((pred_flat - true_flat) ** 2))
-    
-    # MAPE (避免除零，设置阈值)
-    # 只计算真实值大于阈值的位置（避免除以很小的数）
-    threshold = 10.0  # 流量小于10的不计入MAPE
-    mask = true_flat > threshold
-    if mask.sum() > 0:
-        mape = np.mean(np.abs((pred_flat[mask] - true_flat[mask]) / true_flat[mask])) * 100
-    else:
-        mape = 0.0
-    
-    # R² (决定系数)
-    ss_res = np.sum((true_flat - pred_flat) ** 2)
-    ss_tot = np.sum((true_flat - np.mean(true_flat)) ** 2)
-    r2 = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-    
-    return mae, rmse, mape, r2
-
-
-def load_data(data_path, batch_size=64):
-    """
-    加载预处理后的数据
+    加载PEMS数据
+    返回: flow_data (T, N), adj_matrix (N, N)
     """
     data = np.load(data_path)
     
-    X_train = torch.FloatTensor(data['X_train'])
-    y_train = torch.FloatTensor(data['y_train'])
-    X_val = torch.FloatTensor(data['X_val'])
-    y_val = torch.FloatTensor(data['y_val'])
-    X_test = torch.FloatTensor(data['X_test'])
-    y_test = torch.FloatTensor(data['y_test'])
+    print(f"数据集包含的键: {data.files}")
     
-    # 创建数据集
-    train_dataset = torch.utils.data.TensorDataset(X_train, y_train)
-    val_dataset = torch.utils.data.TensorDataset(X_val, y_val)
-    test_dataset = torch.utils.data.TensorDataset(X_test, y_test)
+    # 流量数据 (T, N, F)，取第一个特征（流量）
+    flow_data = data['data'][:, :, 0]  # (T, N)
     
-    # 创建DataLoader
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+    # 尝试加载邻接矩阵
+    if 'adj' in data.files:
+        adj_matrix = data['adj']
+        print("✓ 使用数据集提供的邻接矩阵")
+    elif 'adj_mx' in data.files:
+        adj_matrix = data['adj_mx']
+        print("✓ 使用数据集提供的邻接矩阵 (adj_mx)")
+    else:
+        # 基于流量相关性构建邻接矩阵
+        print("✓ 未找到预定义邻接矩阵，基于流量相关性构建...")
+        adj_matrix = build_correlation_adj(flow_data, top_k=3, threshold=0.5)
+        print("✓ 邻接矩阵构建完成（基于流量相关性）")
     
-    # 标准化参数
-    scaler = (data['mean'].item(), data['std'].item())
+    print(f"流量数据形状: {flow_data.shape}")
+    print(f"邻接矩阵形状: {adj_matrix.shape}")
+    print(f"邻接矩阵边数: {int(np.sum(adj_matrix))}")
+    print(f"平均度数: {np.sum(adj_matrix) / adj_matrix.shape[0]:.2f}")
     
-    print(f"数据加载完成:")
-    print(f"  训练集: {len(train_dataset)} 样本")
-    print(f"  验证集: {len(val_dataset)} 样本")
-    print(f"  测试集: {len(test_dataset)} 样本")
-    
-    return train_loader, val_loader, test_loader, scaler
+    return flow_data, adj_matrix
 
 
-def train_epoch(model, train_loader, optimizer, criterion, device):
-    """训练一个epoch"""
-    model.train()
-    total_loss = 0
-    
-    for batch_X, batch_y in train_loader:
-        batch_X = batch_X.to(device)
-        batch_y = batch_y.to(device)
-        
-        optimizer.zero_grad()
-        output = model(batch_X)
-        loss = criterion(output, batch_y)
-        loss.backward()
-        optimizer.step()
-        
-        total_loss += loss.item()
-    
-    return total_loss / len(train_loader)
-
-
-def evaluate(model, data_loader, criterion, device):
-    """评估模型"""
-    model.eval()
-    total_loss = 0
-    
-    with torch.no_grad():
-        for batch_X, batch_y in data_loader:
-            batch_X = batch_X.to(device)
-            batch_y = batch_y.to(device)
-            
-            output = model(batch_X)
-            loss = criterion(output, batch_y)
-            total_loss += loss.item()
-    
-    return total_loss / len(data_loader)
-
-
-def predict_and_plot(model, test_loader, scaler, device, save_path='lstm_prediction.png'):
+def normalize_adj(adj):
     """
-    预测并绘制结果（类似你提供的图）
+    对称归一化邻接矩阵: D^(-1/2) * (A + I) * D^(-1/2)
     """
-    model.eval()
-    predictions = []
-    true_values = []
+    # 添加自连接
+    adj = adj + np.eye(adj.shape[0])
     
-    with torch.no_grad():
-        for batch_X, batch_y in test_loader:
-            batch_X = batch_X.to(device)
-            output = model(batch_X)
-            
-            predictions.append(output.cpu().numpy())
-            true_values.append(batch_y.numpy())
+    # 转为稀疏矩阵
+    adj = sp.coo_matrix(adj)
     
-    # 拼接所有批次
-    predictions = np.concatenate(predictions, axis=0)  # [num_samples, 12, 307]
-    true_values = np.concatenate(true_values, axis=0)
+    # 计算度矩阵
+    rowsum = np.array(adj.sum(1))
+    d_inv_sqrt = np.power(rowsum, -0.5).flatten()
+    d_inv_sqrt[np.isinf(d_inv_sqrt)] = 0.
+    d_mat_inv_sqrt = sp.diags(d_inv_sqrt)
     
-    # 反标准化
-    mean, std = scaler
-    predictions_real = predictions * std + mean
-    true_values_real = true_values * std + mean
+    # 对称归一化
+    adj_normalized = adj.dot(d_mat_inv_sqrt).transpose().dot(d_mat_inv_sqrt)
     
-    # 选择一个节点进行可视化（节点0）
-    node_idx = 0
+    return adj_normalized.toarray()
+
+
+def create_dataset(data, seq_len, pred_len):
+    """
+    创建滑动窗口数据集
+    data: (T, N)
+    返回: X (num_samples, seq_len, N), y (num_samples, pred_len, N)
+    """
+    T, N = data.shape
+    num_samples = T - seq_len - pred_len + 1
     
-    # 展平时间维度：将所有样本的预测连接起来
-    # 只取每个样本的第一个预测步，避免重叠
-    pred_flat = predictions_real[:, 0, node_idx]  # 取第1步预测
-    true_flat = true_values_real[:, 0, node_idx]
+    X = np.zeros((num_samples, seq_len, N))
+    y = np.zeros((num_samples, pred_len, N))
     
-    # 计算移动平均（平滑）
-    window_size = 12
-    moving_avg = np.convolve(pred_flat, np.ones(window_size)/window_size, mode='valid')
+    for i in range(num_samples):
+        X[i] = data[i:i+seq_len]
+        y[i] = data[i+seq_len:i+seq_len+pred_len]
     
-    # 绘图
-    plt.figure(figsize=(14, 6))
+    return X, y
+
+
+class TrafficDataset(Dataset):
+    """交通数据集"""
+    def __init__(self, X, y):
+        self.X = torch.FloatTensor(X)
+        self.y = torch.FloatTensor(y)
     
-    # 只显示前1200个时间步
-    plot_len = min(1200, len(true_flat))
+    def __len__(self):
+        return len(self.X)
     
-    plt.plot(true_flat[:plot_len], label='True Value', color='blue', linewidth=1.5, alpha=0.7)
-    plt.plot(pred_flat[:plot_len], label='Prediction', color='green', linewidth=1, 
-             linestyle='--', alpha=0.7)
-    
-    # 移动平均
-    if len(moving_avg) > 0:
-        ma_len = min(plot_len, len(moving_avg))
-        plt.plot(range(window_size-1, window_size-1+ma_len), moving_avg[:ma_len], 
-                label='Moving Average', color='orange', linewidth=1.5, alpha=0.8)
-    
-    plt.xlabel('Hour Timesteps', fontsize=12)
-    plt.ylabel('Output Value', fontsize=12)
-    plt.title('Prediction vs. True Value', fontsize=14)
-    plt.legend(fontsize=10)
-    plt.grid(True, alpha=0.3)
-    plt.tight_layout()
-    
-    plt.savefig(save_path, dpi=300, bbox_inches='tight')
-    print(f"\n预测图已保存到: {save_path}")
-    plt.close()
-    
-    return predictions, true_values
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
 
 
 def main():
-    # ========== 配置 ==========
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"使用设备: {device}")
-    if torch.cuda.is_available():
-        print(f"GPU型号: {torch.cuda.get_device_name(0)}")
+    # ========== 配置参数 ==========
+    data_path = "data/PEMS04/PEMS04.npz"
+    seq_len = 12      # 历史1小时（5分钟*12）
+    pred_len = 12     # 预测1小时
+    train_ratio = 0.7
+    val_ratio = 0.1
     
-    data_path = "processed_data.npz"
-    batch_size = 64
-    num_nodes = 307
-    hidden_dim = 64
-    num_layers = 2
-    dropout = 0.1
-    num_epochs = 100
-    learning_rate = 0.001
-    patience = 10
-    
-    print("\n" + "="*50)
-    print("简单LSTM模型训练")
+    print("="*50)
+    print("开始PEMS04数据预处理")
     print("="*50)
     
-    # ========== 加载数据 ==========
-    train_loader, val_loader, test_loader, scaler = load_data(data_path, batch_size)
+    # ========== 1. 加载数据 ==========
+    flow_data, adj_matrix = load_pems_data(data_path)
     
-    # ========== 创建模型 ==========
-    model = SimpleLSTM(
-        num_nodes=num_nodes,
-        hidden_dim=hidden_dim,
-        num_layers=num_layers,
-        dropout=dropout
-    ).to(device)
+    # ========== 2. 创建滑动窗口 ==========
+    X, y = create_dataset(flow_data, seq_len, pred_len)
+    print(f"\n滑动窗口数据集: X={X.shape}, y={y.shape}")
     
-    total_params = sum(p.numel() for p in model.parameters())
-    print(f"\n模型参数量: {total_params:,}")
+    # ========== 3. 划分数据集（按时间顺序）==========
+    num_samples = len(X)
+    train_end = int(num_samples * train_ratio)
+    val_end = int(num_samples * (train_ratio + val_ratio))
     
-    # ========== 训练 ==========
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    criterion = nn.MSELoss()
+    X_train, y_train = X[:train_end], y[:train_end]
+    X_val, y_val = X[train_end:val_end], y[train_end:val_end]
+    X_test, y_test = X[val_end:], y[val_end:]
     
-    print("\n开始训练...")
-    best_val_loss = float('inf')
-    patience_counter = 0
-    train_losses = []
-    val_losses = []
+    print(f"\n数据集划分:")
+    print(f"  训练集: {len(X_train)} 样本")
+    print(f"  验证集: {len(X_val)} 样本")
+    print(f"  测试集: {len(X_test)} 样本")
     
-    for epoch in range(num_epochs):
-        start_time = time.time()
-        
-        train_loss = train_epoch(model, train_loader, optimizer, criterion, device)
-        val_loss = evaluate(model, val_loader, criterion, device)
-        
-        train_losses.append(train_loss)
-        val_losses.append(val_loss)
-        
-        epoch_time = time.time() - start_time
-        
-        if (epoch + 1) % 5 == 0 or epoch == 0:
-            print(f"Epoch [{epoch+1}/{num_epochs}] "
-                  f"Train Loss: {train_loss:.4f} | "
-                  f"Val Loss: {val_loss:.4f} | "
-                  f"Time: {epoch_time:.2f}s")
-        
-        # 早停
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            patience_counter = 0
-            torch.save(model.state_dict(), 'best_lstm_model.pth')
-            if (epoch + 1) % 5 == 0:
-                print(f"  → 保存最佳模型")
-        else:
-            patience_counter += 1
-            if patience_counter >= patience:
-                print(f"\n早停! 验证损失{patience}个epoch未改善")
-                break
+    # ========== 4. 数据标准化（只用训练集统计量）==========
+    train_mean = np.mean(X_train)
+    train_std = np.std(X_train)
     
-    # ========== 测试评估 ==========
+    X_train_norm = (X_train - train_mean) / train_std
+    y_train_norm = (y_train - train_mean) / train_std
+    
+    X_val_norm = (X_val - train_mean) / train_std
+    y_val_norm = (y_val - train_mean) / train_std
+    
+    X_test_norm = (X_test - train_mean) / train_std
+    y_test_norm = (y_test - train_mean) / train_std
+    
+    print(f"\n标准化参数:")
+    print(f"  均值: {train_mean:.4f}")
+    print(f"  标准差: {train_std:.4f}")
+    
+    # ========== 5. 归一化邻接矩阵 ==========
+    adj_norm = normalize_adj(adj_matrix)
+    print(f"\n邻接矩阵归一化完成")
+    
+    # ========== 6. 创建PyTorch数据集 ==========
+    train_dataset = TrafficDataset(X_train_norm, y_train_norm)
+    val_dataset = TrafficDataset(X_val_norm, y_val_norm)
+    test_dataset = TrafficDataset(X_test_norm, y_test_norm)
+    
+    # ========== 7. 保存处理后的数据 ==========
+    np.savez("processed_data.npz",
+             X_train=X_train_norm, y_train=y_train_norm,
+             X_val=X_val_norm, y_val=y_val_norm,
+             X_test=X_test_norm, y_test=y_test_norm,
+             adj_matrix=adj_norm,
+             mean=train_mean, 
+             std=train_std,
+             seq_len=seq_len, 
+             pred_len=pred_len)
+    
+    print(f"\n数据已保存到 processed_data.npz")
+    
+    # ========== 8. 返回结果 ==========
     print("\n" + "="*50)
-    print("测试集评估")
+    print("数据预处理完成!")
     print("="*50)
     
-    model.load_state_dict(torch.load('best_lstm_model.pth'))
-    
-    # 获取所有预测结果
-    model.eval()
-    all_predictions = []
-    all_true = []
-    
-    with torch.no_grad():
-        for batch_X, batch_y in test_loader:
-            batch_X = batch_X.to(device)
-            output = model(batch_X)
-            all_predictions.append(output.cpu().numpy())
-            all_true.append(batch_y.numpy())
-    
-    predictions = np.concatenate(all_predictions, axis=0)
-    true_values = np.concatenate(all_true, axis=0)
-    
-    # 计算指标
-    mae, rmse, mape = calculate_metrics(predictions, true_values, scaler)
-    
-    print(f"\n测试集指标 (LSTM):")
-    print(f"  MAE:  {mae:.4f}")
-    print(f"  RMSE: {rmse:.4f}")
-    print(f"  MAPE: {mape:.2f}%")
-    
-    # 绘制预测图
-    predict_and_plot(model, test_loader, scaler, device)
-    
-    # 保存结果
-    np.savez('lstm_results.npz',
-             predictions=predictions,
-             true_values=true_values,
-             train_losses=train_losses,
-             val_losses=val_losses,
-             mae=mae, rmse=rmse, mape=mape)
-    
-    print("\n训练完成!")
-    print("保存文件:")
-    print("  - best_lstm_model.pth (模型权重)")
-    print("  - lstm_prediction.png (预测图)")
-    print("  - lstm_results.npz (所有结果)")
-    
-    return model, scaler
+    return {
+        'train_dataset': train_dataset,
+        'val_dataset': val_dataset,
+        'test_dataset': test_dataset,
+        'adj_matrix': adj_norm,
+        'scaler': (train_mean, train_std)
+    }
 
 
 if __name__ == "__main__":
-    model, scaler = main()
+    # 运行预处理
+    data = main()
+    
+    # ========== 数据验证 ==========
+    print("\n数据验证:")
+    print(f"训练集样本数: {len(data['train_dataset'])}")
+    print(f"验证集样本数: {len(data['val_dataset'])}")
+    print(f"测试集样本数: {len(data['test_dataset'])}")
+    
+    # 查看一个样本
+    sample_X, sample_y = data['train_dataset'][0]
+    print(f"\n样本形状:")
+    print(f"  输入 X: {sample_X.shape}")  # [12, 307]
+    print(f"  输出 y: {sample_y.shape}")  # [12, 307]
+    print(f"  邻接矩阵: {data['adj_matrix'].shape}")  # [307, 307]
+    
+    print("\n使用说明:")
+    print("- LSTM: 直接使用 train_dataset, val_dataset, test_dataset")
+    print("- STGCN: 使用上述数据集 + adj_matrix (在模型forward时传入)")
+    print("- 反标准化公式: y_real = y_norm * std + mean")
+    print("\n邻接矩阵构建方法: 基于流量相关性（Top-3邻居，阈值0.5）")
