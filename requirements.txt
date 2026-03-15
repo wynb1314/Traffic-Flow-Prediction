@@ -1,0 +1,6 @@
+Django>=4.2,<5
+numpy>=1.24
+torch>=2.0
+networkx>=3.0
+plotly>=5.18
+pandas>=2.0
