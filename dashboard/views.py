@@ -41,6 +41,137 @@ def data_explore(request):
     return render(request, 'dashboard/data_explore.html', {'page': 'explore'})
 
 
+def _get_num_cameras():
+    """若存在传感器 CSV 则从中统计摄像头数，否则用节点数"""
+    csv_path = getattr(settings, 'SENSORS_CSV_PATH', None)
+    if csv_path is None:
+        csv_path = BASE_DIR / 'PEMS04' / 'sensors.csv'
+    for p in [Path(csv_path), BASE_DIR / 'sensors.csv', BASE_DIR / 'PEMS04.csv']:
+        if p.exists():
+            try:
+                import csv as csv_module
+                with open(p, 'r', encoding='utf-8-sig', errors='ignore') as f:
+                    r = csv_module.reader(f)
+                    next(r, None)
+                    return sum(1 for _ in r)
+            except Exception:
+                pass
+    return None
+
+
+def api_explore_stats(request):
+    """摄像头数、节点数（供数据探索页统计卡片）"""
+    data, adj, _ = _get_adj_and_scaler()
+    num_nodes = int(adj.shape[0]) if adj is not None else 307
+    num_cameras = _get_num_cameras()
+    if num_cameras is None:
+        num_cameras = num_nodes
+    return JsonResponse({'num_nodes': num_nodes, 'num_cameras': num_cameras})
+
+
+def api_congestion_top10(request):
+    """拥堵路段 Top10：按测试集上平均流量（反标准化）排序取前 10 个节点"""
+    data, adj, scaler = _get_adj_and_scaler()
+    if data is None or scaler is None:
+        return JsonResponse({'error': '数据未加载'}, status=404)
+    mean, std = scaler
+    y_test = data['y_test']
+    # 每个节点在所有样本、所有预测步上的平均流量（反标准化）
+    flow = (y_test * std + mean).reshape(-1, y_test.shape[1] * y_test.shape[2])
+    # 按节点：取该节点在所有样本上的平均
+    node_avg = np.mean(y_test * std + mean, axis=(0, 1))
+    top10_idx = np.argsort(node_avg)[::-1][:10]
+    top10 = [{'rank': i + 1, 'node_id': int(idx), 'avg_flow': float(node_avg[idx])} for i, idx in enumerate(top10_idx)]
+    return JsonResponse({'top10': top10})
+
+
+def api_topology_3d(request):
+    """3D 拓扑：307 个节点悬浮在三维空间，节点间发光连线"""
+    data, adj, _ = _get_adj_and_scaler()
+    if adj is None:
+        return JsonResponse({'error': '数据未加载'}, status=404)
+    try:
+        import plotly.graph_objects as go
+    except ImportError:
+        return JsonResponse({'error': '缺少 plotly'}, status=500)
+    threshold = float(request.GET.get('threshold', 0.08))
+    num_nodes = adj.shape[0]
+    # 稳定 3D 布局：在单位球面附近随机分布
+    np.random.seed(42)
+    pos = np.random.standard_normal((num_nodes, 3))
+    pos = pos / (np.linalg.norm(pos, axis=1, keepdims=True) + 1e-8) * 1.2
+    # 边：邻接矩阵大于阈值的连线（单条 trace 多段线，用 None 断开）
+    ex, ey, ez = [], [], []
+    for i in range(num_nodes):
+        for j in range(i + 1, num_nodes):
+            if adj[i, j] > threshold:
+                ex.extend([pos[i, 0], pos[j, 0], None])
+                ey.extend([pos[i, 1], pos[j, 1], None])
+                ez.extend([pos[i, 2], pos[j, 2], None])
+    edge_trace = go.Scatter3d(
+        x=ex if ex else [0],
+        y=ey if ey else [0],
+        z=ez if ez else [0],
+        mode='lines',
+        line=dict(color='rgba(78, 205, 196, 0.9)', width=2.5),
+        hoverinfo='none',
+        showlegend=False,
+    )
+    node_trace = go.Scatter3d(
+        x=pos[:, 0].tolist(),
+        y=pos[:, 1].tolist(),
+        z=pos[:, 2].tolist(),
+        mode='markers+text',
+        text=[str(i) for i in range(num_nodes)],
+        textposition='top center',
+        textfont=dict(size=8),
+        marker=dict(
+            size=4,
+            color=np.arange(num_nodes),
+            colorscale='Viridis',
+            line=dict(width=0.5, color='rgba(255,255,255,0.5)'),
+        ),
+        hovertext=[f'节点 {i}' for i in range(num_nodes)],
+        hoverinfo='text',
+        showlegend=False,
+    )
+    fig = go.Figure(data=[edge_trace, node_trace])
+    fig.update_layout(
+        title=dict(text='3D 路网拓扑（307 节点）', font=dict(size=16)),
+        scene=dict(
+            xaxis=dict(showticklabels=False, title='', backgroundcolor='rgba(17,17,23,1)', gridcolor='rgba(60,60,80,0.3)'),
+            yaxis=dict(showticklabels=False, title='', backgroundcolor='rgba(17,17,23,1)', gridcolor='rgba(60,60,80,0.3)'),
+            zaxis=dict(showticklabels=False, title='', backgroundcolor='rgba(17,17,23,1)', gridcolor='rgba(60,60,80,0.3)'),
+            bgcolor='rgba(15,17,23,1)',
+        ),
+        paper_bgcolor='rgba(28,31,42,1)',
+        plot_bgcolor='rgba(15,17,23,1)',
+        margin=dict(l=0, r=0, t=40, b=0),
+        height=520,
+    )
+    return JsonResponse(json.loads(fig.to_json()))
+
+
+def api_polar_period(request):
+    """极坐标周期图：日周期（12 步或 24 段）theta = 角度, r = 平均流量"""
+    data, adj, scaler = _get_adj_and_scaler()
+    if data is None or scaler is None:
+        return JsonResponse({'error': '数据未加载'}, status=404)
+    node = int(request.GET.get('node', 0))
+    node = min(max(0, node), adj.shape[0] - 1)
+    mean, std = scaler
+    X_test = data['X_test']
+    n_samples = min(3000, X_test.shape[0])
+    # 12 个时段（对应 12 步）的平均流量
+    day_agg = np.mean(X_test[:n_samples, :, node] * std + mean, axis=0)
+    # 极坐标：每段 2*pi/12 弧度
+    n_steps = 12
+    thetas = (np.arange(n_steps) * 2 * np.pi / n_steps).tolist()
+    # 闭合：首尾相接
+    r = day_agg.tolist()
+    return JsonResponse({'theta': thetas, 'r': r, 'node': node})
+
+
 def predict_page(request):
     data, adj, _ = _get_adj_and_scaler()
     num_nodes = int(adj.shape[0]) if adj is not None else 307

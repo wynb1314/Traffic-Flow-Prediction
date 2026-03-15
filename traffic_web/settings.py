@@ -71,3 +71,5 @@ PROCESSED_DATA_PATH = DATA_DIR / 'processed_data.npz'
 STGCN_MODEL_PATH = DATA_DIR / 'best_stgcn_model.pth'
 STGCN_RESULTS_PATH = DATA_DIR / 'stgcn_results.npz'
 LSTM_RESULTS_PATH = DATA_DIR / 'lstm_results.npz'
+# 可选：PEMS04 传感器 CSV 路径，用于统计摄像头数；不存在则用节点数
+SENSORS_CSV_PATH = DATA_DIR / 'PEMS04' / 'sensors.csv'
