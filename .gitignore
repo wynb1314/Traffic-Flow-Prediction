@@ -3,4 +3,4 @@ data/metr-la/adj.npz
 *.npz
 data/PEMS03/PEMS03.txt
 *.png
-*.html
+
