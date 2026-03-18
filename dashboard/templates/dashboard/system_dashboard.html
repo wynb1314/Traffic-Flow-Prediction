@@ -1,11 +1,50 @@
 {% extends 'dashboard/base.html' %}
+{% load static %}
 {% block title %}系统仪表盘 - PEMS04{% endblock %}
+{% block extra_css %}
+<style>
+    .model-intro {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        align-items: start;
+    }
+    .model-text {
+        line-height: 1.8;
+        color: #c0c0c0;
+    }
+    .model-text p {
+        text-indent: 2em;
+        margin: 0.5rem 0;
+    }
+    .model-image {
+        text-align: center;
+    }
+    .model-image img {
+        max-width: 100%;
+        height: auto;
+        border-radius: 8px;
+        border: 1px solid rgba(78, 205, 196, 0.3);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .model-image .caption {
+        margin-top: 0.5rem;
+        color: #7a7f8c;
+        font-size: 0.9rem;
+    }
+    @media (max-width: 900px) {
+        .model-intro {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+{% endblock %}
 {% block content %}
 <h1 style="margin-top:0; margin-bottom:1rem;">系统仪表盘</h1>
 
 <div class="card">
     <h2>项目介绍</h2>
-    <p>本系统基于 <strong>PEMS04</strong> 数据集，使用 <strong>STGCN</strong>（时空图卷积网络）与 <strong>LSTM</strong> 进行交通流量预测。PEMS04 为加州交通传感器数据，包含 307 个节点，本系统支持 12 步（约 1 小时）多步预测。</p>
+    <p>本系统基于 <strong>PEMS04</strong> 数据集，使用 <strong>STGCN</strong>（时空图卷积网络）与 <strong>LSTM</strong> 进行交通流量预测。PEMS04 为加州交通传感器数据，包含 307 个节点，本系统支持 12 步（一步为5min，即1 小时）多步预测。</p>
     <ul style="color:#aaa;">
         <li><strong>数据探索</strong>：路网拓扑、时间序列、周/日模式分析</li>
         <li><strong>智能预测</strong>：选择节点与样本，调用 STGCN 模型得到预测曲线</li>
@@ -14,11 +53,25 @@
 </div>
 
 <div class="card">
-    <h2>模型指标</h2>
-    <p style="margin-bottom:1rem; color:#888;">在测试集上的 MAE、RMSE、MAPE、R²（若已生成 lstm_results.npz / stgcn_results.npz）</p>
+    <h2>STGCN 模型介绍</h2>
+    <div class="model-intro">
+        <div class="model-text">
+            <p>STGCN框架由两个时空卷积块（ST-Conv块）和一个完全连接的输出层组成。每个ST-Conv块包含两个时间门控卷积层和一个位于中间的空间图卷积层。残差连接和瓶颈策略在每个模块内应用。</p>
+            <p>输入 v<sub>t-M+1</sub>, ..., v<sub>t</sub> 通过ST-变体块统一处理，以连贯地探索空间和时间依赖关系。综合特征通过输出层集成以生成最终预测 v̂。</p>
+        </div>
+        <div class="model-image">
+            <img src="{% static 'images/stgcn_model_structure.png' %}" alt="STGCN模型结构图">
+            <div class="caption">STGCN 模型结构图</div>
+        </div>
+    </div>
+</div>
 
+<div class="card">
+    <h2>模型指标</h2>
+    <p style="margin-bottom:1rem; color:#888;">在测试集上的 MAE、RMSE、MAPE、R²</p>
+    <p style="margin-bottom:1rem; color:#888;">STGCN（时空图卷积网络）与 LSTM（基准模型）的对比</p>
     {% if metrics.stgcn %}
-    <h3 style="font-size:1rem; color:#4ecdc4;">STGCN</h3>
+    <h3 style="font-size:1rem; color:#4ecdc4;">STGCN（时空图卷积网络）</h3>
     <div class="metrics-row">
         <div class="metric-box"><span class="label">MAE</span><div class="value">{{ metrics.stgcn.mae|floatformat:4 }}</div></div>
         <div class="metric-box"><span class="label">RMSE</span><div class="value">{{ metrics.stgcn.rmse|floatformat:4 }}</div></div>
@@ -30,7 +83,7 @@
     {% endif %}
 
     {% if metrics.lstm %}
-    <h3 style="font-size:1rem; color:#45B7D1; margin-top:1rem;">LSTM</h3>
+    <h3 style="font-size:1rem; color:#45B7D1; margin-top:1rem;">LSTM（基准模型）</h3>
     <div class="metrics-row">
         <div class="metric-box"><span class="label">MAE</span><div class="value">{{ metrics.lstm.mae|floatformat:4 }}</div></div>
         <div class="metric-box"><span class="label">RMSE</span><div class="value">{{ metrics.lstm.rmse|floatformat:4 }}</div></div>
