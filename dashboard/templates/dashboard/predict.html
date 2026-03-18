@@ -1,54 +1,234 @@
 {% extends 'dashboard/base.html' %}
 {% block title %}智能预测 - PEMS04{% endblock %}
+{% block extra_css %}
+<style>
+    .predict-page .page-header {
+        margin-bottom: 28px;
+    }
+
+    .config-row {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-wrap: wrap;
+        margin-bottom: 16px;
+    }
+
+    .config-row label {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--text-secondary);
+        font-size: 14px;
+    }
+
+    .config-row select,
+    .config-row input[type="number"] {
+        padding: 10px 14px;
+        border-radius: var(--radius-sm);
+        border: 1px solid var(--border);
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+        font-size: 14px;
+        min-width: 100px;
+        transition: all 0.2s ease;
+    }
+
+    .config-row select:focus,
+    .config-row input[type="number"]:focus {
+        outline: none;
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px var(--accent-bg);
+    }
+
+    .predict-btn {
+        padding: 12px 28px;
+        background: var(--accent);
+        color: white;
+        border: none;
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
+    }
+
+    .predict-btn:hover {
+        background: var(--accent-light);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
+    }
+
+    .predict-btn:active {
+        transform: translateY(0);
+    }
+
+    .predict-msg {
+        min-height: 1.5rem;
+        font-size: 14px;
+        margin-top: 12px;
+        padding: 8px 16px;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+        display: inline-block;
+        color: var(--text-muted);
+        border: 1px solid var(--border-light);
+    }
+
+    .predict-msg.success {
+        background: var(--accent-bg);
+        color: var(--accent);
+        border-color: rgba(249, 115, 22, 0.2);
+    }
+
+    .predict-msg.error {
+        background: #fef2f2;
+        color: var(--danger);
+        border-color: rgba(239, 68, 68, 0.2);
+    }
+</style>
+{% endblock %}
 {% block content %}
-<h1 style="margin-top:0; margin-bottom:1rem;">智能预测</h1>
-<p style="color:#888; margin-bottom:1.5rem;">选择节点与样本，使用 STGCN 模型进行预测并查看曲线</p>
-
-<div class="card">
-    <h2>预测配置</h2>
-    <div class="metrics-row">
-        <label>节点 ID <select id="predict-node">{% for i in node_list %}<option value="{{ i }}">{{ i }}{% endfor %}</select></label>
-        <label style="margin-left:1rem;">样本索引 <input type="number" id="predict-sample" min="0" value="0" style="width:100px;"></label>
-        <button id="predict-btn" style="margin-left:1rem; padding:0.5rem 1rem; background:var(--accent); color:var(--nav-bg); border:none; border-radius:6px; cursor:pointer;">运行预测</button>
+<div class="predict-page">
+    <div class="page-header">
+        <h1 class="page-title">智能预测</h1>
+        <p class="page-subtitle">选择节点与样本，使用 STGCN 模型进行预测并查看曲线</p>
     </div>
-    <p id="predict-msg" style="min-height:1.5rem; color:#888;"></p>
-</div>
 
-<div class="card">
-    <h2>输入序列（过去 12 步）</h2>
-    <div id="input-seq-chart" class="chart-container"></div>
-</div>
+    <div class="card">
+        <div class="card-title">
+            <span class="card-title-icon"></span>
+            预测配置
+        </div>
+        <div class="config-row">
+            <label>节点 ID
+                <select id="predict-node">
+                    {% for i in node_list %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
+                </select>
+            </label>
+            <label>样本索引
+                <input type="number" id="predict-sample" min="0" value="0">
+            </label>
+            <button class="predict-btn" id="predict-btn">运行预测</button>
+        </div>
+        <p id="predict-msg" class="predict-msg"></p>
+    </div>
 
-<div class="card">
-    <h2>预测曲线（未来 12 步）</h2>
-    <div id="pred-curve-chart" class="chart-container"></div>
+    <div class="card">
+        <div class="card-title">
+            <span class="card-title-icon"></span>
+            输入序列（过去 12 步）
+        </div>
+        <div id="input-seq-chart" class="chart-container"></div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">
+            <span class="card-title-icon"></span>
+            预测曲线（未来 12 步）
+        </div>
+        <div id="pred-curve-chart" class="chart-container"></div>
+    </div>
 </div>
 
 <script>
 (function() {
     var nodeSelect = document.getElementById('predict-node');
+    // Plotly 图表通用配置 - 浅色主题
+    var plotlyLayout = {
+        paper_bgcolor: 'rgba(255, 255, 255, 0)',
+        plot_bgcolor: 'rgba(250, 249, 247, 1)',
+        font: { color: '#4a4a4a', family: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
+        margin: { t: 40, r: 20, b: 50, l: 60 },
+        xaxis: { gridcolor: '#e8e6e3', zerolinecolor: '#d0cec9', tickfont: { color: '#7a7a7a' } },
+        yaxis: { gridcolor: '#e8e6e3', zerolinecolor: '#d0cec9', tickfont: { color: '#7a7a7a' } }
+    };
 
     document.getElementById('predict-btn').onclick = function() {
         var nodeId = parseInt(nodeSelect.value, 10);
         var sampleIdx = parseInt(document.getElementById('predict-sample').value, 10);
         var msg = document.getElementById('predict-msg');
         msg.textContent = '正在预测...';
+        msg.className = 'predict-msg';
+
         fetch('/api/predict/run/', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]') && document.querySelector('[name=csrfmiddlewaretoken]').value },
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]') && document.querySelector('[name=csrfmiddlewaretoken]').value
+            },
             body: JSON.stringify({ node_id: nodeId, sample_idx: sampleIdx })
         })
         .then(function(r) { return r.json(); })
         .then(function(d) {
-            if (d.error) { msg.textContent = d.error; return; }
+            if (d.error) {
+                msg.textContent = d.error;
+                msg.className = 'predict-msg error';
+                return;
+            }
             msg.textContent = '节点 ' + d.node_id + '，样本 ' + d.sample_idx;
-            Plotly.newPlot('input-seq-chart', [{ x: Array.from({ length: 12 }, function(_, i) { return i + 1; }), y: d.input_seq, type: 'scatter', mode: 'lines+markers', name: '输入', line: { color: '#2ca02c' } }], { title: '输入序列', xaxis: { title: '步' }, yaxis: { title: '流量' }, template: 'plotly_dark', margin: { t: 40 }, height: 320 }, { responsive: true });
+            msg.className = 'predict-msg success';
+
+            // 输入序列图表
+            Plotly.newPlot('input-seq-chart', [{
+                x: Array.from({ length: 12 }, function(_, i) { return i + 1; }),
+                y: d.input_seq,
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: '输入',
+                line: { color: '#f97316', width: 2 },
+                marker: { size: 8, color: '#f97316' },
+                fill: 'tozeroy',
+                fillcolor: 'rgba(249, 115, 22, 0.1)'
+            }], Object.assign({}, plotlyLayout, {
+                title: { text: '输入序列', font: { color: '#1a1a1a' } },
+                xaxis: { title: '步', gridcolor: '#e8e6e3' },
+                yaxis: { title: '流量', gridcolor: '#e8e6e3' },
+                height: 320,
+                showlegend: false
+            }), { responsive: true });
+
+            // 预测曲线图表
             Plotly.newPlot('pred-curve-chart', [
-                { x: d.pred_steps, y: d.true, type: 'scatter', mode: 'lines+markers', name: '真实值', line: { color: '#1f77b4' } },
-                { x: d.pred_steps, y: d.pred, type: 'scatter', mode: 'lines+markers', name: 'STGCN 预测', line: { color: '#ff7f0e', dash: 'dash' } }
-            ], { title: '预测 vs 真实', xaxis: { title: '预测步' }, yaxis: { title: '流量' }, template: 'plotly_dark', margin: { t: 40 }, height: 380 }, { responsive: true });
+                {
+                    x: d.pred_steps,
+                    y: d.true,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: '真实值',
+                    line: { color: '#4a4a4a', width: 2 },
+                    marker: { size: 8, color: '#4a4a4a' }
+                },
+                {
+                    x: d.pred_steps,
+                    y: d.pred,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: 'STGCN 预测',
+                    line: { color: '#f97316', dash: 'dash', width: 2 },
+                    marker: { size: 8, color: '#f97316' }
+                }
+            ], Object.assign({}, plotlyLayout, {
+                title: { text: '预测 vs 真实', font: { color: '#1a1a1a' } },
+                xaxis: { title: '预测步', gridcolor: '#e8e6e3' },
+                yaxis: { title: '流量', gridcolor: '#e8e6e3' },
+                height: 380,
+                showlegend: true,
+                legend: {
+                    x: 1,
+                    y: 1,
+                    xanchor: 'right',
+                    bgcolor: 'rgba(255, 255, 255, 0.9)',
+                    bordercolor: '#e8e6e3',
+                    borderwidth: 1
+                }
+            }), { responsive: true });
         })
-        .catch(function(e) { msg.textContent = '请求失败: ' + e.message; });
+        .catch(function(e) {
+            msg.textContent = '请求失败: ' + e.message;
+            msg.className = 'predict-msg error';
+        });
     };
 })();
 </script>
