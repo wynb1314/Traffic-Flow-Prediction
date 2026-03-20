@@ -316,12 +316,6 @@
         min-height: 300px;
     }
 
-    /* 节点 Sparkline */
-    #node-sparkline {
-        margin-top: 10px;
-        height: 80px;
-    }
-
     /* 误差分析区 */
     .error-section {
         margin-top: 14px;
@@ -464,12 +458,6 @@
                     <span class="node-info-label">流量稳定性</span>
                     <span class="node-info-value" id="node-pattern">-</span>
                 </div>
-                <div class="node-info-item">
-                    <span class="node-info-label">时段变化趋势</span>
-                    <span class="node-info-value" id="node-trend">-</span>
-                </div>
-                <!-- 日内模式 Sparkline -->
-                <div id="node-sparkline"></div>
             </div>
         </div>
 
@@ -526,16 +514,6 @@
 <script>
 (function() {
     var selectedTimestep = 12;
-    var sparklineLayout = {
-        paper_bgcolor: 'rgba(0,0,0,0)',
-        plot_bgcolor: 'rgba(0,0,0,0)',
-        margin: { t: 4, r: 4, b: 20, l: 36 },
-        xaxis: { showgrid: false, zeroline: false, tickfont: { size: 10, color: '#aaa' },
-                 tickvals: [0, 3, 6, 9, 11], ticktext: ['T1','T4','T7','T10','T12'] },
-        yaxis: { showgrid: true, gridcolor: '#e8e6e3', zeroline: false,
-                 tickfont: { size: 10, color: '#aaa' } },
-        showlegend: false, hovermode: 'x unified'
-    };
     var plotlyLayout = {
         paper_bgcolor: 'rgba(255, 255, 255, 0)',
         plot_bgcolor: 'rgba(250, 249, 247, 1)',
@@ -625,37 +603,6 @@
             var patEl = document.getElementById('node-pattern');
             patEl.textContent = stability + '（CV=' + cv.toFixed(2) + '）';
             patEl.className = 'node-info-value ' + stabClass;
-
-            // 时段变化趋势（比较 day_pattern 前半段 vs 后半段，阈值降至 1.5%）
-            var trendEl = document.getElementById('node-trend');
-            if (d.day_pattern && d.day_pattern.length >= 2) {
-                var firstHalf = d.day_pattern.slice(0, 6).reduce(function(a, b){ return a + b; }, 0) / 6;
-                var secondHalf = d.day_pattern.slice(6).reduce(function(a, b){ return a + b; }, 0) / 6;
-                var change = (secondHalf - firstHalf) / (firstHalf + 0.01) * 100;
-                if (change > 1.5) {
-                    trendEl.textContent = '后段偏高 ↑ ' + change.toFixed(1) + '%';
-                    trendEl.className = 'node-info-value trend-up';
-                } else if (change < -1.5) {
-                    trendEl.textContent = '后段偏低 ↓ ' + Math.abs(change).toFixed(1) + '%';
-                    trendEl.className = 'node-info-value trend-down';
-                } else {
-                    trendEl.textContent = '前后均匀 →';
-                    trendEl.className = 'node-info-value trend-stable';
-                }
-            }
-
-            // 绘制 Sparkline（日内模式折线）
-            if (d.day_pattern) {
-                var xs = d.day_pattern.map(function(_, i){ return i; });
-                Plotly.newPlot('node-sparkline', [{
-                    x: xs, y: d.day_pattern,
-                    type: 'scatter', mode: 'lines',
-                    fill: 'tozeroy',
-                    fillcolor: 'rgba(249,115,22,0.10)',
-                    line: { color: '#f97316', width: 2, shape: 'spline' },
-                    hovertemplate: 'T%{x}<br>%{y:.1f} 辆<extra></extra>'
-                }], sparklineLayout, { staticPlot: false, displayModeBar: false, responsive: true });
-            }
         });
     }
 
