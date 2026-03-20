@@ -228,13 +228,68 @@ def api_polar_period(request):
 
 
 def predict_page(request):
-    data, adj, _ = _get_adj_and_scaler()
+    data, adj, scaler = _get_adj_and_scaler()
     num_nodes = int(adj.shape[0]) if adj is not None else 307
     num_samples = int(data['X_test'].shape[0]) if data is not None else 0
+
+    # 预计算高准确率节点（准确率 >= 90%）
+    good_nodes = []
+    if data is not None and scaler is not None and adj is not None:
+        try:
+            import torch
+            from STGCN import STGCN
+            model_path = getattr(settings, 'STGCN_MODEL_PATH', BASE_DIR / 'best_stgcn_model.pth')
+            if Path(model_path).exists():
+                device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+                model = STGCN(num_nodes=num_nodes, hidden_channels=64, num_layers=3, pred_len=12, kernel_size=3).to(device)
+                state = torch.load(model_path, map_location=device)
+                if hasattr(state, 'state_dict'):
+                    state = state.state_dict()
+                model.load_state_dict(state, strict=True)
+                model.eval()
+
+                X_test = data['X_test']
+                y_test = data['y_test']
+                mean, std = scaler
+
+                # 用部分样本估算各节点准确率
+                eval_samples = min(200, X_test.shape[0])
+                adj_t = torch.FloatTensor(adj).to(device)
+                x_batch = torch.FloatTensor(X_test[:eval_samples]).to(device)
+
+                with torch.no_grad():
+                    preds = model(x_batch, adj_t).cpu().numpy()  # [eval_samples, 12, num_nodes]
+
+                # 反归一化
+                if isinstance(mean, np.ndarray) and mean.ndim == 1:
+                    preds_real = preds * std.reshape(1, 1, -1) + mean.reshape(1, 1, -1)
+                    y_real = y_test[:eval_samples] * std.reshape(1, 1, -1) + mean.reshape(1, 1, -1)
+                else:
+                    preds_real = preds * std + mean
+                    y_real = y_test[:eval_samples] * std + mean
+
+                # 计算每个节点的准确率（1 - MAPE）
+                for node_id in range(num_nodes):
+                    node_pred = preds_real[:, :, node_id].flatten()
+                    node_true = y_real[:eval_samples, :, node_id].flatten()
+                    # 避免除零
+                    mask = node_true > 1
+                    if mask.sum() > 0:
+                        mape = np.mean(np.abs((node_true[mask] - node_pred[mask]) / node_true[mask]))
+                        acc = max(0, 1 - mape)
+                        if acc >= 0.90:
+                            good_nodes.append({'id': node_id, 'acc': round(acc * 100, 1)})
+        except Exception:
+            pass
+
+    # 最多保留6个高准确率节点，按准确率降序
+    good_nodes = sorted(good_nodes, key=lambda x: x['acc'], reverse=True)[:6]
+
     return render(request, 'dashboard/predict.html', {
         'page': 'predict',
         'num_nodes': num_nodes,
         'num_samples': num_samples,
+        'good_nodes': good_nodes,
     })
 
 

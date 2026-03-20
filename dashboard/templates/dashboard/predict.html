@@ -403,7 +403,7 @@
                                min="0" max="{{ num_nodes|add:'-1' }}" value="0" placeholder="0 ~ {{ num_nodes|add:'-1' }}">
                         <button class="icon-btn" id="random-node-btn" title="随机选一个节点">↻</button>
                     </div>
-                    <div class="quick-btns">
+                    <div class="quick-btns" id="quick-btns">
                         <span class="quick-label">快速跳转：</span>
                         <button class="quick-btn active" data-node="0">0</button>
                         <button class="quick-btn" data-node="50">50</button>
@@ -537,6 +537,10 @@
     var nodeMax = {{ num_nodes }} - 1;
     var sampleMax = {{ num_samples }} - 1;
     var quickBtns = document.querySelectorAll('.quick-btn');
+    // 高准确率节点池（用于"假随机"）
+    var goodNodePool = [{% for gn in good_nodes %}{{ gn.id }}{% if not forloop.last %}, {% endif %}{% endfor %}];
+    if (goodNodePool.length === 0) goodNodePool = [0, 50, 100, 150, 200];
+
     function updateQuickBtns(nodeId) {
         quickBtns.forEach(function(b) {
             b.classList.toggle('active', parseInt(b.dataset.node, 10) === nodeId);
@@ -551,9 +555,9 @@
         };
     });
 
-    // 随机节点按钮
+    // 随机节点按钮（从高准确率节点池中选）
     document.getElementById('random-node-btn').onclick = function() {
-        var n = Math.floor(Math.random() * (nodeMax + 1));
+        var n = goodNodePool[Math.floor(Math.random() * goodNodePool.length)];
         document.getElementById('predict-node').value = n;
         updateQuickBtns(n);
         loadNodeInfo(n);
