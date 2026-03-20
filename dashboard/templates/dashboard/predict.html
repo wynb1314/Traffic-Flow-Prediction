@@ -3,52 +3,111 @@
 {% block extra_css %}
 <style>
     .predict-page .page-header {
-        margin-bottom: 28px;
+        margin-bottom: 24px;
     }
 
-    .config-row {
-        display: flex;
-        align-items: center;
+    /* 主布局：左40% 右60% */
+    .main-layout {
+        display: grid;
+        grid-template-columns: 40% 60%;
         gap: 20px;
-        flex-wrap: wrap;
-        margin-bottom: 16px;
     }
 
-    .config-row label {
+    /* 左侧配置区 */
+    .config-panel {
         display: flex;
-        align-items: center;
-        gap: 8px;
-        color: var(--text-secondary);
-        font-size: 14px;
+        flex-direction: column;
+        gap: 16px;
     }
 
-    .config-row select,
-    .config-row input[type="number"] {
-        padding: 10px 14px;
+    .config-card {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-md);
+        padding: 16px;
+        border: 1px solid var(--border-light);
+    }
+
+    .config-card-title {
+        font-size: 12px;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 12px;
+        font-weight: 500;
+    }
+
+    .form-group {
+        margin-bottom: 14px;
+    }
+
+    .form-group:last-child {
+        margin-bottom: 0;
+    }
+
+    .form-label {
+        display: block;
+        font-size: 13px;
+        color: var(--text-secondary);
+        margin-bottom: 6px;
+    }
+
+    .form-select,
+    .form-input {
+        width: 100%;
+        padding: 10px 12px;
         border-radius: var(--radius-sm);
         border: 1px solid var(--border);
-        background: var(--bg-secondary);
+        background: var(--bg-primary);
         color: var(--text-primary);
         font-size: 14px;
-        min-width: 100px;
+        box-sizing: border-box;
+    }
+
+    .form-select:focus,
+    .form-input:focus {
+        outline: none;
+        border-color: var(--accent);
+    }
+
+    /* 时间步按钮组 */
+    .timestep-btns {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+    }
+
+    .timestep-btn {
+        padding: 10px 8px;
+        border: 1px solid var(--border);
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        font-size: 13px;
+        cursor: pointer;
         transition: all 0.2s ease;
     }
 
-    .config-row select:focus,
-    .config-row input[type="number"]:focus {
-        outline: none;
+    .timestep-btn:hover {
         border-color: var(--accent);
-        box-shadow: 0 0 0 3px var(--accent-bg);
+        color: var(--accent);
     }
 
+    .timestep-btn.active {
+        background: var(--accent);
+        border-color: var(--accent);
+        color: white;
+    }
+
+    /* 预测按钮 */
     .predict-btn {
-        padding: 12px 28px;
+        width: 100%;
+        padding: 14px;
         background: var(--accent);
         color: white;
         border: none;
         border-radius: var(--radius-sm);
         cursor: pointer;
-        font-size: 14px;
+        font-size: 15px;
         font-weight: 600;
         transition: all 0.2s ease;
         box-shadow: 0 2px 8px rgba(249, 115, 22, 0.25);
@@ -60,20 +119,15 @@
         box-shadow: 0 4px 12px rgba(249, 115, 22, 0.35);
     }
 
-    .predict-btn:active {
-        transform: translateY(0);
-    }
-
     .predict-msg {
-        min-height: 1.5rem;
-        font-size: 14px;
-        margin-top: 12px;
-        padding: 8px 16px;
+        font-size: 12px;
+        margin-top: 10px;
+        padding: 6px 10px;
         background: var(--bg-tertiary);
         border-radius: var(--radius-sm);
-        display: inline-block;
         color: var(--text-muted);
         border: 1px solid var(--border-light);
+        text-align: center;
     }
 
     .predict-msg.success {
@@ -84,8 +138,106 @@
 
     .predict-msg.error {
         background: #fef2f2;
-        color: var(--danger);
+        color: #ef4444;
         border-color: rgba(239, 68, 68, 0.2);
+    }
+
+    /* 节点信息 */
+    .node-info-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+        border-bottom: 1px solid var(--border-light);
+    }
+
+    .node-info-item:last-child {
+        border-bottom: none;
+    }
+
+    .node-info-label {
+        font-size: 13px;
+        color: var(--text-muted);
+    }
+
+    .node-info-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+    }
+
+    .trend-up { color: #ef4444; }
+    .trend-down { color: #22c55e; }
+    .trend-stable { color: #6b7280; }
+
+    /* 右侧图表区 */
+    .chart-panel {
+        background: var(--bg-secondary);
+        border-radius: var(--radius-md);
+        border: 1px solid var(--border-light);
+        padding: 16px;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .chart-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+    }
+
+    .chart-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--text-primary);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .chart-title::before {
+        content: '';
+        width: 3px;
+        height: 14px;
+        background: var(--accent);
+        border-radius: 2px;
+    }
+
+    /* 图例 */
+    .chart-legend {
+        display: flex;
+        gap: 16px;
+    }
+
+    .legend-item {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        font-size: 12px;
+        color: var(--text-secondary);
+    }
+
+    .legend-line {
+        width: 16px;
+        height: 3px;
+        border-radius: 2px;
+    }
+
+    .legend-line.input { background: #3b82f6; }
+    .legend-line.true { background: #6b7280; }
+    .legend-line.pred { background: #f97316; }
+
+    #predict-chart {
+        flex: 1;
+        min-height: 400px;
+    }
+
+    /* 响应式 */
+    @media (max-width: 900px) {
+        .main-layout {
+            grid-template-columns: 1fr;
+        }
     }
 </style>
 {% endblock %}
@@ -93,60 +245,155 @@
 <div class="predict-page">
     <div class="page-header">
         <h1 class="page-title">智能预测</h1>
-        <p class="page-subtitle">选择节点与样本，使用 STGCN 模型进行预测并查看曲线</p>
+        <p class="page-subtitle">选择监测节点与预测时间步长，使用 STGCN 模型进行交通流量预测</p>
     </div>
 
-    <div class="card">
-        <div class="card-title">
-            <span class="card-title-icon"></span>
-            预测配置
-        </div>
-        <div class="config-row">
-            <label>节点 ID
-                <select id="predict-node">
-                    {% for i in node_list %}<option value="{{ i }}">{{ i }}</option>{% endfor %}
-                </select>
-            </label>
-            <label>样本索引
-                <input type="number" id="predict-sample" min="0" value="0">
-            </label>
-            <button class="predict-btn" id="predict-btn">运行预测</button>
-        </div>
-        <p id="predict-msg" class="predict-msg"></p>
-    </div>
+    <div class="main-layout">
+        <!-- 左侧：配置区 40% -->
+        <div class="config-panel">
+            <!-- 节点选择 + 样本索引 -->
+            <div class="config-card">
+                <div class="config-card-title">预测参数</div>
+                <div class="form-group">
+                    <label class="form-label">选择预测节点</label>
+                    <select id="predict-node" class="form-select">
+                        {% for i in node_list %}<option value="{{ i }}">节点 {{ i }}</option>{% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">样本索引（时间点）</label>
+                    <input type="number" id="predict-sample" class="form-input" min="0" value="0">
+                </div>
+            </div>
 
-    <div class="card">
-        <div class="card-title">
-            <span class="card-title-icon"></span>
-            输入序列（过去 12 步）
-        </div>
-        <div id="input-seq-chart" class="chart-container"></div>
-    </div>
+            <!-- 预测时间步选择 -->
+            <div class="config-card">
+                <div class="config-card-title">预测时间步</div>
+                <div class="timestep-btns">
+                    <button class="timestep-btn" data-step="3">3步</button>
+                    <button class="timestep-btn" data-step="6">6步</button>
+                    <button class="timestep-btn active" data-step="12">12步</button>
+                </div>
+            </div>
 
-    <div class="card">
-        <div class="card-title">
-            <span class="card-title-icon"></span>
-            预测曲线（未来 12 步）
+            <!-- 开始预测按钮 -->
+            <div class="config-card">
+                <button class="predict-btn" id="predict-btn">开始预测</button>
+                <p id="predict-msg" class="predict-msg"></p>
+            </div>
+
+            <!-- 节点信息 -->
+            <div class="config-card" id="node-info-card" style="display: none;">
+                <div class="config-card-title">节点流量特征</div>
+                <div class="node-info-item">
+                    <span class="node-info-label">平均流量</span>
+                    <span class="node-info-value" id="node-avg-flow">-</span>
+                </div>
+                <div class="node-info-item">
+                    <span class="node-info-label">流量模式</span>
+                    <span class="node-info-value" id="node-pattern">-</span>
+                </div>
+                <div class="node-info-item">
+                    <span class="node-info-label">流量趋势</span>
+                    <span class="node-info-value" id="node-trend">-</span>
+                </div>
+            </div>
         </div>
-        <div id="pred-curve-chart" class="chart-container"></div>
+
+        <!-- 右侧：图表区 60% -->
+        <div class="chart-panel">
+            <div class="chart-header">
+                <div class="chart-title">流量预测曲线</div>
+                <div class="chart-legend">
+                    <div class="legend-item">
+                        <div class="legend-line input"></div>
+                        <span>历史输入</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-line true"></div>
+                        <span>真实值</span>
+                    </div>
+                    <div class="legend-item">
+                        <div class="legend-line pred"></div>
+                        <span>STGCN预测</span>
+                    </div>
+                </div>
+            </div>
+            <div id="predict-chart"></div>
+        </div>
     </div>
 </div>
 
 <script>
 (function() {
-    var nodeSelect = document.getElementById('predict-node');
-    // Plotly 图表通用配置 - 浅色主题
+    var selectedTimestep = 12;
     var plotlyLayout = {
         paper_bgcolor: 'rgba(255, 255, 255, 0)',
         plot_bgcolor: 'rgba(250, 249, 247, 1)',
         font: { color: '#4a4a4a', family: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif' },
-        margin: { t: 40, r: 20, b: 50, l: 60 },
+        margin: { t: 30, r: 20, b: 50, l: 60 },
         xaxis: { gridcolor: '#e8e6e3', zerolinecolor: '#d0cec9', tickfont: { color: '#7a7a7a' } },
         yaxis: { gridcolor: '#e8e6e3', zerolinecolor: '#d0cec9', tickfont: { color: '#7a7a7a' } }
     };
 
+    // 时间步按钮事件
+    var timestepBtns = document.querySelectorAll('.timestep-btn');
+    timestepBtns.forEach(function(btn) {
+        btn.onclick = function() {
+            timestepBtns.forEach(function(b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            selectedTimestep = parseInt(btn.dataset.step, 10);
+        };
+    });
+
+    // 节点选择变化时获取节点信息
+    document.getElementById('predict-node').onchange = function() {
+        var nodeId = parseInt(this.value, 10);
+        fetch('/api/explore/patterns/?node=' + nodeId)
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+            if (d.error) return;
+            document.getElementById('node-info-card').style.display = 'block';
+
+            // 平均流量
+            var avgFlow = d.day_pattern ? (d.day_pattern.reduce(function(a,b){return a+b;},0) / d.day_pattern.length).toFixed(1) : '-';
+            document.getElementById('node-avg-flow').textContent = avgFlow;
+
+            // 流量模式
+            var pattern = '平稳';
+            if (d.day_pattern) {
+                var maxVal = Math.max.apply(null, d.day_pattern);
+                var minVal = Math.min.apply(null, d.day_pattern);
+                var range = maxVal - minVal;
+                if (range > 30) pattern = '波动较大';
+                else if (range > 15) pattern = '中等波动';
+                else pattern = '相对平稳';
+            }
+            document.getElementById('node-pattern').textContent = pattern;
+
+            // 流量趋势
+            var trendEl = document.getElementById('node-trend');
+            if (d.day_pattern && d.day_pattern.length >= 2) {
+                var firstHalf = d.day_pattern.slice(0, 6).reduce(function(a,b){return a+b;},0) / 6;
+                var secondHalf = d.day_pattern.slice(6).reduce(function(a,b){return a+b;},0) / 6;
+                var change = ((secondHalf - firstHalf) / (firstHalf + 0.01) * 100).toFixed(1);
+                if (change > 5) {
+                    trendEl.textContent = '上升 ↑';
+                    trendEl.className = 'node-info-value trend-up';
+                } else if (change < -5) {
+                    trendEl.textContent = '下降 ↓';
+                    trendEl.className = 'node-info-value trend-down';
+                } else {
+                    trendEl.textContent = '平稳 →';
+                    trendEl.className = 'node-info-value trend-stable';
+                }
+            }
+        });
+    };
+
+    // 预测按钮事件
     document.getElementById('predict-btn').onclick = function() {
-        var nodeId = parseInt(nodeSelect.value, 10);
+        var nodeId = parseInt(document.getElementById('predict-node').value, 10);
         var sampleIdx = parseInt(document.getElementById('predict-sample').value, 10);
         var msg = document.getElementById('predict-msg');
         msg.textContent = '正在预测...';
@@ -158,7 +405,7 @@
                 'Content-Type': 'application/json',
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]') && document.querySelector('[name=csrfmiddlewaretoken]').value
             },
-            body: JSON.stringify({ node_id: nodeId, sample_idx: sampleIdx })
+            body: JSON.stringify({ node_id: nodeId, sample_idx: sampleIdx, pred_steps: selectedTimestep })
         })
         .then(function(r) { return r.json(); })
         .then(function(d) {
@@ -167,69 +414,128 @@
                 msg.className = 'predict-msg error';
                 return;
             }
-            msg.textContent = '节点 ' + d.node_id + '，样本 ' + d.sample_idx;
+            msg.textContent = '预测完成';
             msg.className = 'predict-msg success';
-
-            // 输入序列图表
-            Plotly.newPlot('input-seq-chart', [{
-                x: Array.from({ length: 12 }, function(_, i) { return i + 1; }),
-                y: d.input_seq,
-                type: 'scatter',
-                mode: 'lines+markers',
-                name: '输入',
-                line: { color: '#f97316', width: 2 },
-                marker: { size: 8, color: '#f97316' },
-                fill: 'tozeroy',
-                fillcolor: 'rgba(249, 115, 22, 0.1)'
-            }], Object.assign({}, plotlyLayout, {
-                title: { text: '输入序列', font: { color: '#1a1a1a' } },
-                xaxis: { title: '步', gridcolor: '#e8e6e3' },
-                yaxis: { title: '流量', gridcolor: '#e8e6e3' },
-                height: 320,
-                showlegend: false
-            }), { responsive: true });
-
-            // 预测曲线图表
-            Plotly.newPlot('pred-curve-chart', [
-                {
-                    x: d.pred_steps,
-                    y: d.true,
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    name: '真实值',
-                    line: { color: '#4a4a4a', width: 2 },
-                    marker: { size: 8, color: '#4a4a4a' }
-                },
-                {
-                    x: d.pred_steps,
-                    y: d.pred,
-                    type: 'scatter',
-                    mode: 'lines+markers',
-                    name: 'STGCN 预测',
-                    line: { color: '#f97316', dash: 'dash', width: 2 },
-                    marker: { size: 8, color: '#f97316' }
-                }
-            ], Object.assign({}, plotlyLayout, {
-                title: { text: '预测 vs 真实', font: { color: '#1a1a1a' } },
-                xaxis: { title: '预测步', gridcolor: '#e8e6e3' },
-                yaxis: { title: '流量', gridcolor: '#e8e6e3' },
-                height: 380,
-                showlegend: true,
-                legend: {
-                    x: 1,
-                    y: 1,
-                    xanchor: 'right',
-                    bgcolor: 'rgba(255, 255, 255, 0.9)',
-                    bordercolor: '#e8e6e3',
-                    borderwidth: 1
-                }
-            }), { responsive: true });
+            drawChart(d);
         })
         .catch(function(e) {
             msg.textContent = '请求失败: ' + e.message;
             msg.className = 'predict-msg error';
         });
     };
+
+    function drawChart(d) {
+        var inputSeq = d.input_seq || [];
+        var inputLen = inputSeq.length;
+        var predSteps = selectedTimestep;
+        var trueData = (d.true || []).slice(0, predSteps);
+        var predData = (d.pred || []).slice(0, predSteps);
+
+        // X轴：连贯衔接
+        var inputX = [];
+        var predX = [];
+        for (var i = 0; i < inputLen; i++) {
+            inputX.push(i);
+        }
+        predX.push(inputLen - 1);
+        for (var i = 0; i < predSteps; i++) {
+            predX.push(inputLen + i);
+        }
+
+        var trueDataConnected = [inputSeq[inputLen - 1]].concat(trueData);
+        var predDataConnected = [inputSeq[inputLen - 1]].concat(predData);
+
+        var allY = inputSeq.concat(trueData).concat(predData);
+        var maxY = Math.max.apply(null, allY.filter(function(v){return v !== null && !isNaN(v);})) * 1.15;
+
+        var traces = [];
+
+        // 历史输入曲线
+        traces.push({
+            x: inputX,
+            y: inputSeq,
+            type: 'scatter',
+            mode: 'lines',
+            name: '历史输入',
+            line: { color: '#3b82f6', width: 3, shape: 'spline' },
+            hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
+        });
+
+        // 真实值曲线
+        traces.push({
+            x: predX,
+            y: trueDataConnected,
+            type: 'scatter',
+            mode: 'lines',
+            name: '真实值',
+            line: { color: '#6b7280', width: 3, shape: 'spline' },
+            hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
+        });
+
+        // 预测曲线
+        traces.push({
+            x: predX,
+            y: predDataConnected,
+            type: 'scatter',
+            mode: 'lines',
+            name: 'STGCN预测',
+            line: { color: '#f97316', width: 3, shape: 'spline', dash: 'dash' },
+            hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
+        });
+
+        // 分界线
+        traces.push({
+            x: [inputLen - 0.5, inputLen - 0.5],
+            y: [0, maxY],
+            type: 'scatter',
+            mode: 'lines',
+            line: { color: '#e8e6e3', width: 2, dash: 'dot' },
+            hoverinfo: 'none',
+            showlegend: false
+        });
+
+        var totalLen = inputLen + predSteps;
+        var tickVals = [];
+        for (var i = 0; i < totalLen; i += Math.ceil(totalLen / 8)) {
+            tickVals.push(i);
+        }
+
+        Plotly.newPlot('predict-chart', traces, Object.assign({}, plotlyLayout, {
+            xaxis: {
+                title: '时间步',
+                gridcolor: '#e8e6e3',
+                tickvals: tickVals,
+                range: [-0.5, totalLen - 0.5]
+            },
+            yaxis: { title: '流量', gridcolor: '#e8e6e3', rangemode: 'tozero' },
+            height: 420,
+            showlegend: false,
+            hovermode: 'x unified',
+            annotations: [
+                {
+                    x: inputLen / 2 - 0.5,
+                    y: 1.02,
+                    xref: 'x',
+                    yref: 'paper',
+                    text: '历史输入',
+                    showarrow: false,
+                    font: { color: '#3b82f6', size: 12 }
+                },
+                {
+                    x: inputLen + predSteps / 2 - 0.5,
+                    y: 1.02,
+                    xref: 'x',
+                    yref: 'paper',
+                    text: '预测区间',
+                    showarrow: false,
+                    font: { color: '#f97316', size: 12 }
+                }
+            ]
+        }), { responsive: true });
+    }
+
+    // 初始化节点信息
+    document.getElementById('predict-node').onchange();
 })();
 </script>
 <form style="display:none;">{% csrf_token %}</form>
