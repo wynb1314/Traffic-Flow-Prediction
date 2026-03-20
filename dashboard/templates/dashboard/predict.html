@@ -69,6 +69,90 @@
         border-color: var(--accent);
     }
 
+    /* 行内输入 + 按钮 */
+    .input-row {
+        display: flex;
+        gap: 6px;
+    }
+
+    .input-row .form-input {
+        flex: 1;
+    }
+
+    .icon-btn {
+        padding: 0 12px;
+        border: 1px solid var(--border);
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        border-radius: var(--radius-sm);
+        font-size: 16px;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        flex-shrink: 0;
+        line-height: 1;
+    }
+
+    .icon-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+        background: var(--accent-bg);
+    }
+
+    /* 辅助说明文字 */
+    .form-hint {
+        font-size: 11px;
+        color: var(--text-muted);
+        font-weight: 400;
+        margin-left: 6px;
+    }
+
+    .form-desc {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-top: 5px;
+        padding: 4px 8px;
+        background: var(--bg-tertiary);
+        border-radius: var(--radius-sm);
+    }
+
+    /* 快速跳转节点按钮 */
+    .quick-btns {
+        display: flex;
+        align-items: center;
+        gap: 5px;
+        margin-top: 7px;
+        flex-wrap: wrap;
+    }
+
+    .quick-label {
+        font-size: 11px;
+        color: var(--text-muted);
+        white-space: nowrap;
+    }
+
+    .quick-btn {
+        padding: 3px 9px;
+        border: 1px solid var(--border);
+        background: var(--bg-primary);
+        color: var(--text-secondary);
+        border-radius: 999px;
+        font-size: 11px;
+        cursor: pointer;
+        transition: all 0.15s ease;
+    }
+
+    .quick-btn:hover {
+        border-color: var(--accent);
+        color: var(--accent);
+    }
+
+    .quick-btn.active {
+        background: var(--accent-bg);
+        border-color: var(--accent);
+        color: var(--accent);
+        font-weight: 600;
+    }
+
     /* 时间步按钮组 */
     .timestep-btns {
         display: grid;
@@ -316,14 +400,36 @@
             <div class="config-card">
                 <div class="config-card-title">预测参数</div>
                 <div class="form-group">
-                    <label class="form-label">选择预测节点</label>
-                    <select id="predict-node" class="form-select">
-                        {% for i in node_list %}<option value="{{ i }}">节点 {{ i }}</option>{% endfor %}
-                    </select>
+                    <label class="form-label">
+                        预测节点
+                        <span class="form-hint">共 {{ num_nodes }} 个传感器</span>
+                    </label>
+                    <div class="input-row">
+                        <input type="number" id="predict-node" class="form-input"
+                               min="0" max="{{ num_nodes|add:'-1' }}" value="0" placeholder="0 ~ {{ num_nodes|add:'-1' }}">
+                        <button class="icon-btn" id="random-node-btn" title="随机选一个节点">↻</button>
+                    </div>
+                    <div class="quick-btns">
+                        <span class="quick-label">快速跳转：</span>
+                        <button class="quick-btn active" data-node="0">0</button>
+                        <button class="quick-btn" data-node="50">50</button>
+                        <button class="quick-btn" data-node="100">100</button>
+                        <button class="quick-btn" data-node="150">150</button>
+                        <button class="quick-btn" data-node="200">200</button>
+                        <button class="quick-btn" data-node="255">255</button>
+                    </div>
                 </div>
                 <div class="form-group">
-                    <label class="form-label">样本索引（时间点）</label>
-                    <input type="number" id="predict-sample" class="form-input" min="0" value="0">
+                    <label class="form-label">
+                        样本时间点
+                        <span class="form-hint">共 {{ num_samples }} 个测试样本</span>
+                    </label>
+                    <div class="input-row">
+                        <input type="number" id="predict-sample" class="form-input"
+                               min="0" max="{{ num_samples|add:'-1' }}" value="0">
+                        <button class="icon-btn" id="random-sample-btn" title="随机选取时间点">↻</button>
+                    </div>
+                    <div class="form-desc">每样本 = 12步 × 5min ≈ 1h 历史窗口</div>
                 </div>
             </div>
 
@@ -331,9 +437,9 @@
             <div class="config-card">
                 <div class="config-card-title">预测时间步</div>
                 <div class="timestep-btns">
-                    <button class="timestep-btn" data-step="3">3步</button>
-                    <button class="timestep-btn" data-step="6">6步</button>
-                    <button class="timestep-btn active" data-step="12">12步</button>
+                    <button class="timestep-btn" data-step="3">3步<br><small>15 min</small></button>
+                    <button class="timestep-btn" data-step="6">6步<br><small>30 min</small></button>
+                    <button class="timestep-btn active" data-step="12">12步<br><small>1 h</small></button>
                 </div>
             </div>
 
@@ -347,15 +453,19 @@
             <div class="config-card" id="node-info-card" style="display: none;">
                 <div class="config-card-title">节点流量特征</div>
                 <div class="node-info-item">
-                    <span class="node-info-label">平均流量</span>
+                    <span class="node-info-label">均值流量</span>
                     <span class="node-info-value" id="node-avg-flow">-</span>
                 </div>
                 <div class="node-info-item">
-                    <span class="node-info-label">流量模式</span>
+                    <span class="node-info-label">峰值流量 (P95)</span>
+                    <span class="node-info-value" id="node-peak-flow">-</span>
+                </div>
+                <div class="node-info-item">
+                    <span class="node-info-label">流量稳定性</span>
                     <span class="node-info-value" id="node-pattern">-</span>
                 </div>
                 <div class="node-info-item">
-                    <span class="node-info-label">流量趋势</span>
+                    <span class="node-info-label">时段变化趋势</span>
                     <span class="node-info-value" id="node-trend">-</span>
                 </div>
                 <!-- 日内模式 Sparkline -->
@@ -445,45 +555,91 @@
         };
     });
 
-    // 节点选择变化时获取节点信息 + 绘制 Sparkline
+    // 快速跳转节点按钮
+    var nodeMax = {{ num_nodes }} - 1;
+    var sampleMax = {{ num_samples }} - 1;
+    var quickBtns = document.querySelectorAll('.quick-btn');
+    function updateQuickBtns(nodeId) {
+        quickBtns.forEach(function(b) {
+            b.classList.toggle('active', parseInt(b.dataset.node, 10) === nodeId);
+        });
+    }
+    quickBtns.forEach(function(btn) {
+        btn.onclick = function() {
+            var n = parseInt(btn.dataset.node, 10);
+            document.getElementById('predict-node').value = n;
+            updateQuickBtns(n);
+            loadNodeInfo(n);
+        };
+    });
+
+    // 随机节点按钮
+    document.getElementById('random-node-btn').onclick = function() {
+        var n = Math.floor(Math.random() * (nodeMax + 1));
+        document.getElementById('predict-node').value = n;
+        updateQuickBtns(n);
+        loadNodeInfo(n);
+    };
+
+    // 随机样本按钮
+    document.getElementById('random-sample-btn').onclick = function() {
+        var s = Math.floor(Math.random() * (sampleMax + 1));
+        document.getElementById('predict-sample').value = s;
+    };
+
+    // 节点输入变化时获取节点信息 + 绘制 Sparkline
     document.getElementById('predict-node').onchange = function() {
-        var nodeId = parseInt(this.value, 10);
+        var nodeId = Math.max(0, Math.min(nodeMax, parseInt(this.value, 10) || 0));
+        this.value = nodeId;
+        updateQuickBtns(nodeId);
+        loadNodeInfo(nodeId);
+    };
+
+    function loadNodeInfo(nodeId) {
         fetch('/api/explore/patterns/?node=' + nodeId)
         .then(function(r) { return r.json(); })
         .then(function(d) {
             if (d.error) return;
             document.getElementById('node-info-card').style.display = 'block';
 
-            // 平均流量
-            var avgFlow = d.day_pattern ? (d.day_pattern.reduce(function(a,b){return a+b;},0) / d.day_pattern.length).toFixed(1) : '-';
-            document.getElementById('node-avg-flow').textContent = avgFlow + ' 辆/5min';
+            // 均值流量
+            var avgFlow = d.day_pattern
+                ? (d.day_pattern.reduce(function(a, b){ return a + b; }, 0) / d.day_pattern.length).toFixed(1) + ' 辆/5min'
+                : '-';
+            document.getElementById('node-avg-flow').textContent = avgFlow;
 
-            // 流量模式
-            var pattern = '平稳';
-            if (d.day_pattern) {
-                var maxVal = Math.max.apply(null, d.day_pattern);
-                var minVal = Math.min.apply(null, d.day_pattern);
-                var range = maxVal - minVal;
-                if (range > 100) pattern = '波动较大';
-                else if (range > 40) pattern = '中等波动';
-                else pattern = '相对平稳';
+            // 峰值流量 P95
+            document.getElementById('node-peak-flow').textContent =
+                d.peak_flow != null ? d.peak_flow.toFixed(1) + ' 辆/5min' : '-';
+
+            // 流量稳定性（基于变异系数 CV）
+            var cv = d.cv || 0;
+            var stability, stabClass;
+            if (cv > 0.6) {
+                stability = '高度波动';  stabClass = 'trend-up';
+            } else if (cv > 0.35) {
+                stability = '中等波动';  stabClass = 'trend-stable';
+            } else {
+                stability = '相对稳定';  stabClass = 'trend-down';
             }
-            document.getElementById('node-pattern').textContent = pattern;
+            var patEl = document.getElementById('node-pattern');
+            patEl.textContent = stability + '（CV=' + cv.toFixed(2) + '）';
+            patEl.className = 'node-info-value ' + stabClass;
 
-            // 流量趋势
+            // 时段变化趋势（比较 day_pattern 前半段 vs 后半段，阈值降至 1.5%）
             var trendEl = document.getElementById('node-trend');
             if (d.day_pattern && d.day_pattern.length >= 2) {
-                var firstHalf = d.day_pattern.slice(0, 6).reduce(function(a,b){return a+b;},0) / 6;
-                var secondHalf = d.day_pattern.slice(6).reduce(function(a,b){return a+b;},0) / 6;
-                var change = ((secondHalf - firstHalf) / (firstHalf + 0.01) * 100).toFixed(1);
-                if (change > 5) {
-                    trendEl.textContent = '上升 ↑ ' + change + '%';
+                var firstHalf = d.day_pattern.slice(0, 6).reduce(function(a, b){ return a + b; }, 0) / 6;
+                var secondHalf = d.day_pattern.slice(6).reduce(function(a, b){ return a + b; }, 0) / 6;
+                var change = (secondHalf - firstHalf) / (firstHalf + 0.01) * 100;
+                if (change > 1.5) {
+                    trendEl.textContent = '后段偏高 ↑ ' + change.toFixed(1) + '%';
                     trendEl.className = 'node-info-value trend-up';
-                } else if (change < -5) {
-                    trendEl.textContent = '下降 ↓ ' + Math.abs(change) + '%';
+                } else if (change < -1.5) {
+                    trendEl.textContent = '后段偏低 ↓ ' + Math.abs(change).toFixed(1) + '%';
                     trendEl.className = 'node-info-value trend-down';
                 } else {
-                    trendEl.textContent = '平稳 →';
+                    trendEl.textContent = '前后均匀 →';
                     trendEl.className = 'node-info-value trend-stable';
                 }
             }
@@ -491,18 +647,17 @@
             // 绘制 Sparkline（日内模式折线）
             if (d.day_pattern) {
                 var xs = d.day_pattern.map(function(_, i){ return i; });
-                var sparkTrace = {
+                Plotly.newPlot('node-sparkline', [{
                     x: xs, y: d.day_pattern,
                     type: 'scatter', mode: 'lines',
                     fill: 'tozeroy',
                     fillcolor: 'rgba(249,115,22,0.10)',
                     line: { color: '#f97316', width: 2, shape: 'spline' },
                     hovertemplate: 'T%{x}<br>%{y:.1f} 辆<extra></extra>'
-                };
-                Plotly.newPlot('node-sparkline', [sparkTrace], sparklineLayout, { staticPlot: false, displayModeBar: false, responsive: true });
+                }], sparklineLayout, { staticPlot: false, displayModeBar: false, responsive: true });
             }
         });
-    };
+    }
 
     // 预测按钮事件
     document.getElementById('predict-btn').onclick = function() {
@@ -668,8 +823,8 @@
         document.getElementById('error-section').style.display = 'block';
     }
 
-    // 初始化节点信息
-    document.getElementById('predict-node').onchange();
+    // 初始化：加载节点 0 的信息
+    loadNodeInfo(0);
 })();
 </script>
 <form style="display:none;">{% csrf_token %}</form>

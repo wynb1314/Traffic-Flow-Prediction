@@ -230,10 +230,11 @@ def api_polar_period(request):
 def predict_page(request):
     data, adj, _ = _get_adj_and_scaler()
     num_nodes = int(adj.shape[0]) if adj is not None else 307
+    num_samples = int(data['X_test'].shape[0]) if data is not None else 0
     return render(request, 'dashboard/predict.html', {
         'page': 'predict',
         'num_nodes': num_nodes,
-        'node_list': list(range(num_nodes)),
+        'num_samples': num_samples,
     })
 
 
@@ -364,10 +365,18 @@ def api_patterns(request):
             week_agg.append(float(np.mean(subset[:, :, node]) * node_std + node_mean))
         else:
             week_agg.append(0.0)
+    # 变异系数与峰值流量（基于原始未平均数据，真实反映节点波动性）
+    n_all = min(5000, X_test.shape[0])
+    node_raw = (X_test[:n_all, :, node] * node_std + node_mean).flatten()
+    node_raw = node_raw[node_raw > 0]  # 去除零值（停车场/关闭传感器）
+    cv = float(np.std(node_raw) / (np.mean(node_raw) + 1e-8)) if len(node_raw) > 0 else 0.0
+    peak_flow = float(np.percentile(node_raw, 95)) if len(node_raw) > 0 else 0.0
     return JsonResponse({
         'day_pattern': day_agg,
         'week_pattern': week_agg,
         'node': node,
+        'cv': round(cv, 3),
+        'peak_flow': round(peak_flow, 1),
     })
 
 
