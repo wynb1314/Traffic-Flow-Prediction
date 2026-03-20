@@ -348,15 +348,13 @@ def api_patterns(request):
         node_mean, node_std = mean[node], std[node]
     else:
         node_mean, node_std = mean, std
-    # 日模式：12 个时间步上的平均流量
+    # 日模式：12 个时间步上的平均流量（已反归一化）
     steps_12 = 12
-    day_agg = np.zeros(steps_12)
-    count = np.zeros(steps_12)
     n_samples = min(2000, X_test.shape[0])
-    for t in range(steps_12):
-        day_agg[t] = np.mean((X_test[:n_samples, t, node] * node_std + node_mean))
-        count[t] = n_samples
-    day_agg = (day_agg / (count + 1e-8)).tolist()
+    day_agg = np.array([
+        float(np.mean(X_test[:n_samples, t, node] * node_std + node_mean))
+        for t in range(steps_12)
+    ]).tolist()
     # 周模式：用样本索引模 7 当作"星期几"，每个"日"取平均
     week_agg = []
     for d in range(7):

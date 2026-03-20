@@ -229,8 +229,69 @@
     .legend-line.pred { background: #f97316; }
 
     #predict-chart {
-        flex: 1;
-        min-height: 400px;
+        min-height: 300px;
+    }
+
+    /* 节点 Sparkline */
+    #node-sparkline {
+        margin-top: 10px;
+        height: 80px;
+    }
+
+    /* 误差分析区 */
+    .error-section {
+        margin-top: 14px;
+        padding-top: 14px;
+        border-top: 1px solid var(--border-light);
+    }
+
+    .error-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 10px;
+    }
+
+    .error-metrics-row {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+    }
+
+    .error-metric-card {
+        background: var(--bg-tertiary);
+        border: 1px solid var(--border-light);
+        border-radius: var(--radius-sm);
+        padding: 6px 14px;
+        text-align: center;
+        min-width: 72px;
+    }
+
+    .error-metric-card.good {
+        border-color: rgba(34, 197, 94, 0.3);
+        background: rgba(34, 197, 94, 0.05);
+    }
+
+    .error-metric-label {
+        font-size: 11px;
+        color: var(--text-muted);
+        margin-bottom: 2px;
+    }
+
+    .error-metric-value {
+        font-size: 15px;
+        font-weight: 700;
+        color: var(--text-primary);
+    }
+
+    .error-metric-card.good .error-metric-value {
+        color: #22c55e;
+    }
+
+    #error-chart {
+        min-height: 180px;
     }
 
     /* 响应式 */
@@ -297,6 +358,8 @@
                     <span class="node-info-label">流量趋势</span>
                     <span class="node-info-value" id="node-trend">-</span>
                 </div>
+                <!-- 日内模式 Sparkline -->
+                <div id="node-sparkline"></div>
             </div>
         </div>
 
@@ -320,6 +383,32 @@
                 </div>
             </div>
             <div id="predict-chart"></div>
+
+            <!-- 误差分析区：预测完成后显示 -->
+            <div class="error-section" id="error-section" style="display:none;">
+                <div class="error-section-header">
+                    <div class="chart-title">逐步误差分析</div>
+                    <div class="error-metrics-row">
+                        <div class="error-metric-card">
+                            <div class="error-metric-label">MAE</div>
+                            <div class="error-metric-value" id="pred-mae">-</div>
+                        </div>
+                        <div class="error-metric-card">
+                            <div class="error-metric-label">RMSE</div>
+                            <div class="error-metric-value" id="pred-rmse">-</div>
+                        </div>
+                        <div class="error-metric-card">
+                            <div class="error-metric-label">最大误差</div>
+                            <div class="error-metric-value" id="pred-maxerr">-</div>
+                        </div>
+                        <div class="error-metric-card good">
+                            <div class="error-metric-label">准确率</div>
+                            <div class="error-metric-value" id="pred-acc">-</div>
+                        </div>
+                    </div>
+                </div>
+                <div id="error-chart"></div>
+            </div>
         </div>
     </div>
 </div>
@@ -327,6 +416,16 @@
 <script>
 (function() {
     var selectedTimestep = 12;
+    var sparklineLayout = {
+        paper_bgcolor: 'rgba(0,0,0,0)',
+        plot_bgcolor: 'rgba(0,0,0,0)',
+        margin: { t: 4, r: 4, b: 20, l: 36 },
+        xaxis: { showgrid: false, zeroline: false, tickfont: { size: 10, color: '#aaa' },
+                 tickvals: [0, 3, 6, 9, 11], ticktext: ['T1','T4','T7','T10','T12'] },
+        yaxis: { showgrid: true, gridcolor: '#e8e6e3', zeroline: false,
+                 tickfont: { size: 10, color: '#aaa' } },
+        showlegend: false, hovermode: 'x unified'
+    };
     var plotlyLayout = {
         paper_bgcolor: 'rgba(255, 255, 255, 0)',
         plot_bgcolor: 'rgba(250, 249, 247, 1)',
@@ -346,7 +445,7 @@
         };
     });
 
-    // 节点选择变化时获取节点信息
+    // 节点选择变化时获取节点信息 + 绘制 Sparkline
     document.getElementById('predict-node').onchange = function() {
         var nodeId = parseInt(this.value, 10);
         fetch('/api/explore/patterns/?node=' + nodeId)
@@ -357,7 +456,7 @@
 
             // 平均流量
             var avgFlow = d.day_pattern ? (d.day_pattern.reduce(function(a,b){return a+b;},0) / d.day_pattern.length).toFixed(1) : '-';
-            document.getElementById('node-avg-flow').textContent = avgFlow;
+            document.getElementById('node-avg-flow').textContent = avgFlow + ' 辆/5min';
 
             // 流量模式
             var pattern = '平稳';
@@ -365,8 +464,8 @@
                 var maxVal = Math.max.apply(null, d.day_pattern);
                 var minVal = Math.min.apply(null, d.day_pattern);
                 var range = maxVal - minVal;
-                if (range > 30) pattern = '波动较大';
-                else if (range > 15) pattern = '中等波动';
+                if (range > 100) pattern = '波动较大';
+                else if (range > 40) pattern = '中等波动';
                 else pattern = '相对平稳';
             }
             document.getElementById('node-pattern').textContent = pattern;
@@ -378,15 +477,29 @@
                 var secondHalf = d.day_pattern.slice(6).reduce(function(a,b){return a+b;},0) / 6;
                 var change = ((secondHalf - firstHalf) / (firstHalf + 0.01) * 100).toFixed(1);
                 if (change > 5) {
-                    trendEl.textContent = '上升 ↑';
+                    trendEl.textContent = '上升 ↑ ' + change + '%';
                     trendEl.className = 'node-info-value trend-up';
                 } else if (change < -5) {
-                    trendEl.textContent = '下降 ↓';
+                    trendEl.textContent = '下降 ↓ ' + Math.abs(change) + '%';
                     trendEl.className = 'node-info-value trend-down';
                 } else {
                     trendEl.textContent = '平稳 →';
                     trendEl.className = 'node-info-value trend-stable';
                 }
+            }
+
+            // 绘制 Sparkline（日内模式折线）
+            if (d.day_pattern) {
+                var xs = d.day_pattern.map(function(_, i){ return i; });
+                var sparkTrace = {
+                    x: xs, y: d.day_pattern,
+                    type: 'scatter', mode: 'lines',
+                    fill: 'tozeroy',
+                    fillcolor: 'rgba(249,115,22,0.10)',
+                    line: { color: '#f97316', width: 2, shape: 'spline' },
+                    hovertemplate: 'T%{x}<br>%{y:.1f} 辆<extra></extra>'
+                };
+                Plotly.newPlot('node-sparkline', [sparkTrace], sparklineLayout, { staticPlot: false, displayModeBar: false, responsive: true });
             }
         });
     };
@@ -417,6 +530,7 @@
             msg.textContent = '预测完成';
             msg.className = 'predict-msg success';
             drawChart(d);
+            drawErrorChart(d);
         })
         .catch(function(e) {
             msg.textContent = '请求失败: ' + e.message;
@@ -431,16 +545,11 @@
         var trueData = (d.true || []).slice(0, predSteps);
         var predData = (d.pred || []).slice(0, predSteps);
 
-        // X轴：连贯衔接
         var inputX = [];
         var predX = [];
-        for (var i = 0; i < inputLen; i++) {
-            inputX.push(i);
-        }
+        for (var i = 0; i < inputLen; i++) { inputX.push(i); }
         predX.push(inputLen - 1);
-        for (var i = 0; i < predSteps; i++) {
-            predX.push(inputLen + i);
-        }
+        for (var i = 0; i < predSteps; i++) { predX.push(inputLen + i); }
 
         var trueDataConnected = [inputSeq[inputLen - 1]].concat(trueData);
         var predDataConnected = [inputSeq[inputLen - 1]].concat(predData);
@@ -448,90 +557,115 @@
         var allY = inputSeq.concat(trueData).concat(predData);
         var maxY = Math.max.apply(null, allY.filter(function(v){return v !== null && !isNaN(v);})) * 1.15;
 
-        var traces = [];
-
-        // 历史输入曲线
-        traces.push({
-            x: inputX,
-            y: inputSeq,
-            type: 'scatter',
-            mode: 'lines',
-            name: '历史输入',
-            line: { color: '#3b82f6', width: 3, shape: 'spline' },
-            hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
-        });
-
-        // 真实值曲线
-        traces.push({
-            x: predX,
-            y: trueDataConnected,
-            type: 'scatter',
-            mode: 'lines',
-            name: '真实值',
-            line: { color: '#6b7280', width: 3, shape: 'spline' },
-            hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
-        });
-
-        // 预测曲线
-        traces.push({
-            x: predX,
-            y: predDataConnected,
-            type: 'scatter',
-            mode: 'lines',
-            name: 'STGCN预测',
-            line: { color: '#f97316', width: 3, shape: 'spline', dash: 'dash' },
-            hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
-        });
-
-        // 分界线
-        traces.push({
-            x: [inputLen - 0.5, inputLen - 0.5],
-            y: [0, maxY],
-            type: 'scatter',
-            mode: 'lines',
-            line: { color: '#e8e6e3', width: 2, dash: 'dot' },
-            hoverinfo: 'none',
-            showlegend: false
-        });
+        var traces = [
+            {
+                x: inputX, y: inputSeq, type: 'scatter', mode: 'lines', name: '历史输入',
+                line: { color: '#3b82f6', width: 3, shape: 'spline' },
+                hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
+            },
+            {
+                x: predX, y: trueDataConnected, type: 'scatter', mode: 'lines', name: '真实值',
+                line: { color: '#6b7280', width: 3, shape: 'spline' },
+                hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
+            },
+            {
+                x: predX, y: predDataConnected, type: 'scatter', mode: 'lines', name: 'STGCN预测',
+                line: { color: '#f97316', width: 3, shape: 'spline', dash: 'dash' },
+                hovertemplate: '时间 %{x}<br>流量: %{y:.1f}<extra></extra>'
+            },
+            {
+                x: [inputLen - 0.5, inputLen - 0.5], y: [0, maxY],
+                type: 'scatter', mode: 'lines',
+                line: { color: '#e8e6e3', width: 2, dash: 'dot' },
+                hoverinfo: 'none', showlegend: false
+            }
+        ];
 
         var totalLen = inputLen + predSteps;
         var tickVals = [];
-        for (var i = 0; i < totalLen; i += Math.ceil(totalLen / 8)) {
-            tickVals.push(i);
-        }
+        for (var i = 0; i < totalLen; i += Math.ceil(totalLen / 8)) { tickVals.push(i); }
 
         Plotly.newPlot('predict-chart', traces, Object.assign({}, plotlyLayout, {
-            xaxis: {
-                title: '时间步',
-                gridcolor: '#e8e6e3',
-                tickvals: tickVals,
-                range: [-0.5, totalLen - 0.5]
-            },
-            yaxis: { title: '流量', gridcolor: '#e8e6e3', rangemode: 'tozero' },
-            height: 420,
+            xaxis: { title: '时间步', gridcolor: '#e8e6e3', tickvals: tickVals, range: [-0.5, totalLen - 0.5] },
+            yaxis: { title: '流量 (辆/5min)', gridcolor: '#e8e6e3', rangemode: 'tozero' },
+            height: 300,
             showlegend: false,
             hovermode: 'x unified',
             annotations: [
-                {
-                    x: inputLen / 2 - 0.5,
-                    y: 1.02,
-                    xref: 'x',
-                    yref: 'paper',
-                    text: '历史输入',
-                    showarrow: false,
-                    font: { color: '#3b82f6', size: 12 }
-                },
-                {
-                    x: inputLen + predSteps / 2 - 0.5,
-                    y: 1.02,
-                    xref: 'x',
-                    yref: 'paper',
-                    text: '预测区间',
-                    showarrow: false,
-                    font: { color: '#f97316', size: 12 }
-                }
+                { x: inputLen / 2 - 0.5, y: 1.04, xref: 'x', yref: 'paper', text: '历史输入', showarrow: false, font: { color: '#3b82f6', size: 11 } },
+                { x: inputLen + predSteps / 2 - 0.5, y: 1.04, xref: 'x', yref: 'paper', text: '预测区间', showarrow: false, font: { color: '#f97316', size: 11 } }
             ]
         }), { responsive: true });
+    }
+
+    function drawErrorChart(d) {
+        var predSteps = selectedTimestep;
+        var trueData = (d.true || []).slice(0, predSteps);
+        var predData = (d.pred || []).slice(0, predSteps);
+        if (!trueData.length || !predData.length) return;
+
+        // 逐步绝对误差
+        var stepErrors = trueData.map(function(t, i) { return Math.abs(t - predData[i]); });
+        var stepLabels = stepErrors.map(function(_, i) { return '步' + (i + 1); });
+
+        // 计算汇总指标
+        var mae = stepErrors.reduce(function(a, b){ return a + b; }, 0) / stepErrors.length;
+        var rmse = Math.sqrt(stepErrors.map(function(e){ return e * e; }).reduce(function(a,b){return a+b;},0) / stepErrors.length);
+        var maxErr = Math.max.apply(null, stepErrors);
+        var mapeArr = trueData.map(function(t, i){ return t > 1 ? Math.abs(t - predData[i]) / t : 0; });
+        var mape = mapeArr.reduce(function(a,b){return a+b;},0) / mapeArr.length;
+        var acc = Math.max(0, 100 - mape * 100);
+
+        // 更新指标卡
+        document.getElementById('pred-mae').textContent = mae.toFixed(1);
+        document.getElementById('pred-rmse').textContent = rmse.toFixed(1);
+        document.getElementById('pred-maxerr').textContent = maxErr.toFixed(1);
+        document.getElementById('pred-acc').textContent = acc.toFixed(1) + '%';
+
+        // 颜色映射：误差越大越红
+        var maxErrForColor = Math.max.apply(null, stepErrors);
+        var barColors = stepErrors.map(function(e) {
+            var ratio = maxErrForColor > 0 ? e / maxErrForColor : 0;
+            var r = Math.round(59 + (239 - 59) * ratio);
+            var g = Math.round(130 + (68 - 130) * ratio);
+            var b = Math.round(246 + (68 - 246) * ratio);
+            return 'rgb(' + r + ',' + g + ',' + b + ')';
+        });
+
+        var errTrace = {
+            x: stepLabels, y: stepErrors,
+            type: 'bar',
+            marker: { color: barColors, line: { color: 'rgba(0,0,0,0.05)', width: 1 } },
+            hovertemplate: '%{x}<br>误差: %{y:.2f} 辆<extra></extra>'
+        };
+        // MAE 参考线
+        var maeLine = {
+            x: stepLabels, y: stepLabels.map(function(){ return mae; }),
+            type: 'scatter', mode: 'lines', name: 'MAE',
+            line: { color: '#f97316', width: 2, dash: 'dot' },
+            hovertemplate: 'MAE: ' + mae.toFixed(1) + '<extra></extra>'
+        };
+
+        Plotly.newPlot('error-chart', [errTrace, maeLine], {
+            paper_bgcolor: 'rgba(0,0,0,0)',
+            plot_bgcolor: 'rgba(250, 249, 247, 1)',
+            margin: { t: 10, r: 20, b: 40, l: 50 },
+            xaxis: { gridcolor: '#e8e6e3', tickfont: { color: '#7a7a7a', size: 11 } },
+            yaxis: { title: '绝对误差', gridcolor: '#e8e6e3', tickfont: { color: '#7a7a7a', size: 11 }, rangemode: 'tozero' },
+            height: 180,
+            showlegend: false,
+            bargap: 0.25,
+            annotations: [{
+                x: stepLabels[stepLabels.length - 1],
+                y: mae,
+                text: 'MAE=' + mae.toFixed(1),
+                showarrow: false,
+                xanchor: 'right',
+                font: { color: '#f97316', size: 11 }
+            }]
+        }, { responsive: true, displayModeBar: false });
+
+        document.getElementById('error-section').style.display = 'block';
     }
 
     // 初始化节点信息
